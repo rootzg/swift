@@ -772,7 +772,10 @@ public:
 
   /// Record compiler-known protocol information in the AST.
   void recordKnownProtocols(ModuleDecl *Stdlib);
-  
+
+  /// Record compiler-known named-language features in the ModuleDecl.
+  void setKnownFeatures(ModuleDecl *Stdlib);
+
   /// \brief Retrieve the substitutions for a bound generic type, if known.
   Optional<ArrayRef<Substitution>>
   getSubstitutions(TypeBase *type, DeclContext *gpContext) const;

@@ -223,6 +223,7 @@ enum class ConditionalCompilationExprKind {
   OS,
   Arch,
   LanguageVersion,
+  LanguageFeature,
   CompilerVersion,
   Binary,
   Paren,
@@ -268,7 +269,8 @@ public:
       return true;
     return ConditionActive ||
       (getKind() != ConditionalCompilationExprKind::CompilerVersion &&
-       getKind() != ConditionalCompilationExprKind::LanguageVersion);
+       getKind() != ConditionalCompilationExprKind::LanguageVersion &&
+       getKind() != ConditionalCompilationExprKind::LanguageFeature);
   }
 
   static ConditionalCompilationExprState error() {

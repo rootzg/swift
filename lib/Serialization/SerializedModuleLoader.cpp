@@ -181,6 +181,9 @@ FileUnit *SerializedModuleLoader::loadAST(
     if (extendedInfo.isTestable())
       M.setTestingEnabled();
 
+    for (auto const &f : extendedInfo.getFeatures())
+      M.setFeature(f, true);
+
     auto diagLocOrInvalid = diagLoc.getValueOr(SourceLoc());
     loadInfo.status =
         loadedModuleFile->associateWithFileContext(fileUnit, diagLocOrInvalid);

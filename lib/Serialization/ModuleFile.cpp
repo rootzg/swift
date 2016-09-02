@@ -114,6 +114,9 @@ static bool readOptionsBlock(llvm::BitstreamCursor &cursor,
       options_block::ResilienceStrategyLayout::readRecord(scratch, Strategy);
       extendedInfo.setResilienceStrategy(ResilienceStrategy(Strategy));
       break;
+    case options_block::FEATURE:
+      extendedInfo.addFeature(blobData);
+      break;
     default:
       // Unknown options record, possibly for use by a future version of the
       // module format.

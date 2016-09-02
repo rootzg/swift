@@ -1354,6 +1354,12 @@ ERROR(empty_version_string,none,
 WARNING(unknown_platform_condition_argument,none,
       "unknown %0 for build configuration '%1'",
       (StringRef, StringRef))
+WARNING(unknown_feature_condition_argument,none,
+        "unknown feature condition argument %0",
+        (StringRef))
+WARNING(unknown_feature_module_condition_argument,none,
+        "unknown module '%0' in feature condition argument",
+        (StringRef))
 
 //------------------------------------------------------------------------------
 // Availability query parsing diagnostics

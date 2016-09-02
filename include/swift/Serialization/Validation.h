@@ -84,6 +84,7 @@ struct ValidationInfo {
 /// \sa validateSerializedAST()
 class ExtendedValidationInfo {
   SmallVector<StringRef, 4> ExtraClangImporterOpts;
+  SmallVector<StringRef, 4> Features;
   StringRef SDKPath;
   struct {
     unsigned IsSIB : 1;
@@ -104,6 +105,13 @@ public:
   }
   void addExtraClangImporterOption(StringRef option) {
     ExtraClangImporterOpts.push_back(option);
+  }
+
+  ArrayRef<StringRef> getFeatures() const {
+    return Features;
+  }
+  void addFeature(StringRef option) {
+    Features.push_back(option);
   }
 
   bool isSIB() const { return Bits.IsSIB; }

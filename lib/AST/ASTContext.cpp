@@ -1425,6 +1425,14 @@ void ASTContext::recordKnownProtocols(Module *Stdlib) {
 #include "swift/AST/KnownProtocols.def"
 }
 
+void ASTContext::setKnownFeatures(Module *Stdlib) {
+#define STABLE_LANGUAGE_FEATURE(Id) \
+  if (!Stdlib->isFeatureKnown(#Id)) Stdlib->setFeature(#Id, true);
+#define UNSTABLE_LANGUAGE_FEATURE(Id) \
+  if (!Stdlib->isFeatureKnown(#Id)) Stdlib->setFeature(#Id, false);
+#include "swift/AST/KnownLanguageFeatures.def"
+}
+
 Module *ASTContext::getLoadedModule(
     ArrayRef<std::pair<Identifier, SourceLoc>> ModulePath) const {
   assert(!ModulePath.empty());
@@ -1487,8 +1495,11 @@ ASTContext::getModule(ArrayRef<std::pair<Identifier, SourceLoc>> ModulePath) {
     if (Module *M = importer->loadModule(moduleID.second, ModulePath)) {
       if (ModulePath.size() == 1 &&
           (ModulePath[0].first == StdlibModuleName ||
-           ModulePath[0].first == Id_Foundation))
+           ModulePath[0].first == Id_Foundation)) {
         recordKnownProtocols(M);
+        if (ModulePath[0].first == StdlibModuleName)
+          setKnownFeatures(M);
+      }
       return M;
     }
   }

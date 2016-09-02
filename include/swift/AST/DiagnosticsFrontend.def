@@ -113,6 +113,15 @@ ERROR(error_stdlib_module_name,none,
       "%select{|; use -module-name flag to specify an alternate name}1",
       (StringRef, bool))
 
+ERROR(error_stdlib_unstable_feature_unavailable,Fatal,
+      "unstable language feature '%0' is unavailable in this build",
+      (StringRef))
+ERROR(error_stdlib_feature_unknown,Fatal,
+      "language feature '%0' is unknown", (StringRef))
+ERROR(error_enabling_feature_on_other_module,Fatal,
+      "cannot enable feature on module '%0' when compiling module '%1'",
+      (StringRef, StringRef))
+
 ERROR(error_stdlib_not_found,Fatal,
       "unable to load standard library for target '%0'", (StringRef))
 ERROR(error_underlying_module_not_found,none,

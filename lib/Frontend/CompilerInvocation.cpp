@@ -168,6 +168,10 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
 
   Opts.DelayedFunctionBodyParsing |= Args.hasArg(OPT_delayed_function_body_parsing);
   Opts.EnableTesting |= Args.hasArg(OPT_enable_testing);
+  for (const Arg *A : make_range(Args.filtered_begin(OPT_enable_feature),
+                                 Args.filtered_end())) {
+    Opts.EnabledFeatures.push_back(A->getValue());
+  }
   Opts.EnableResilience |= Args.hasArg(OPT_enable_resilience);
 
   Opts.PrintStats |= Args.hasArg(OPT_print_stats);
@@ -1372,5 +1376,7 @@ CompilerInvocation::loadFromSerializedAST(StringRef data) {
   extraClangArgs.insert(extraClangArgs.end(),
                         extendedInfo.getExtraClangImporterOptions().begin(),
                         extendedInfo.getExtraClangImporterOptions().end());
+  for (auto const &f : extendedInfo.getFeatures())
+    getFrontendOptions().EnabledFeatures.push_back(f);
   return info.status;
 }

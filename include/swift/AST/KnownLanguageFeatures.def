@@ -1,0 +1,32 @@
+//===--- KnownLanguageFeatures.def - Compiler feature metaprogramming --*- C++ -*-===//
+//
+// This source file is part of the Swift.org open source project
+//
+// Copyright (c) 2014 - 2016 Apple Inc. and the Swift project authors
+// Licensed under Apache License v2.0 with Runtime Library Exception
+//
+// See http://swift.org/LICENSE.txt for license information
+// See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
+//
+//===----------------------------------------------------------------------===//
+//
+// This file defines macros used for macro-metaprogramming with compiler-known
+// language features.
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef STABLE_LANGUAGE_FEATURE
+#  define STABLE_LANGUAGE_FEATURE(Name)
+#endif
+
+#ifndef UNSTABLE_LANGUAGE_FEATURE
+#  define UNSTABLE_LANGUAGE_FEATURE(Name)
+#endif
+
+STABLE_LANGUAGE_FEATURE(neverType)
+UNSTABLE_LANGUAGE_FEATURE(conditionalConformance)
+UNSTABLE_LANGUAGE_FEATURE(propertyBehaviors)
+UNSTABLE_LANGUAGE_FEATURE(experimentalPatterns)
+
+#undef STABLE_LANGUAGE_FEATURE
+#undef UNSTABLE_LANGUAGE_FEATURE

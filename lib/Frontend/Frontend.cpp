@@ -230,6 +230,47 @@ Module *CompilerInstance::getMainModule() {
     if (Invocation.getFrontendOptions().EnableTesting)
       MainModule->setTestingEnabled();
 
+    // Enable features for this module, including language features.
+    for (llvm::StringRef f : Invocation.getFrontendOptions().EnabledFeatures) {
+      StringRef Name;
+      StringRef Remainder;
+      std::tie(Name, Remainder) = f.split('.');
+      if (Remainder.empty()) {
+        MainModule->setFeature(Name, true);
+      } else {
+        // User requested enabling "Foo.feature"
+        ModuleDecl* featureModule = MainModule;
+        if (Name.equals(STDLIB_NAME)) {
+          // User is asking to enable a language feature, which is modeled as
+          // a feature on the "Swift" stdlib module.
+          if (!featureModule->isStdlibModule())
+            featureModule = Context->getStdlibModule(true);
+          if (!featureModule->isFeatureKnown(Remainder)) {
+            Diagnostics.diagnose(SourceLoc(),
+                                 diag::error_stdlib_feature_unknown,
+                                 Remainder);
+            continue;
+          }
+          // Unstable Swift.* features are modeled as known-but-disabled;
+          // here we prevent enabling them in non-snapshot builds.
+          if (!featureModule->isFeatureEnabled(Remainder) &&
+              !FrontendOptions::AllowUnstableFeatures) {
+            Diagnostics.diagnose(SourceLoc(),
+                                 diag::error_stdlib_unstable_feature_unavailable,
+                                 Remainder);
+            continue;
+          }
+        } else if (!Name.equals(ID.str())) {
+          // Enbling "Foo.feature" is allowed only when compiling Foo
+          Diagnostics.diagnose(SourceLoc(),
+                               diag::error_enabling_feature_on_other_module,
+                               Name, ID.str());
+          continue;
+        }
+        featureModule->setFeature(Remainder, true);
+      }
+    }
+
     if (Invocation.getFrontendOptions().EnableResilience)
       MainModule->setResilienceStrategy(ResilienceStrategy::Resilient);
     else if (Invocation.getFrontendOptions().SILSerializeAll)
@@ -522,8 +563,10 @@ void CompilerInstance::performSema() {
 
   // Even if there were no source files, we should still record known
   // protocols.
-  if (auto *stdlib = Context->getStdlibModule())
+  if (auto *stdlib = Context->getStdlibModule()) {
     Context->recordKnownProtocols(stdlib);
+    Context->setKnownFeatures(stdlib);
+  }
 
   if (DelayedCB) {
     performDelayedParsing(MainModule, PersistentState,

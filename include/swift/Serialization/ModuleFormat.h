@@ -53,7 +53,7 @@ const uint16_t VERSION_MAJOR = 0;
 /// in source control, you should also update the comment to briefly
 /// describe what change you made. The content of this comment isn't important;
 /// it just ensures a conflict if two people change the module format.
-const uint16_t VERSION_MINOR = 264; // Last change: remove AllArchetypes
+const uint16_t VERSION_MINOR = 265; // Last change: encode feature flags
 
 using DeclID = PointerEmbeddedInt<unsigned, 31>;
 using DeclIDField = BCFixed<31>;
@@ -445,7 +445,8 @@ namespace options_block {
     XCC,
     IS_SIB,
     IS_TESTABLE,
-    RESILIENCE_STRATEGY
+    RESILIENCE_STRATEGY,
+    FEATURE,
   };
 
   using SDKPathLayout = BCRecordLayout<
@@ -470,6 +471,11 @@ namespace options_block {
   using ResilienceStrategyLayout = BCRecordLayout<
     RESILIENCE_STRATEGY,
     BCFixed<2>
+  >;
+
+  using FeatureLayout = BCRecordLayout<
+    FEATURE,
+    BCBlob // -enable-feature flag, as string
   >;
 }
 

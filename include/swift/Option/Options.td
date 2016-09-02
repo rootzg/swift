@@ -505,6 +505,12 @@ def enable_testing : Flag<["-"], "enable-testing">,
   Flags<[FrontendOption, NoInteractiveOption, HelpHidden]>,
   HelpText<"Allows this module's internal API to be accessed for testing">;
 
+def enable_feature: Separate<["-"], "enable-feature">,
+  Flags<[FrontendOption]>,
+  MetaVarName<"<featureName>">,
+  HelpText<"Enable <featureName>, <Swift.featureName> or"
+  " <Module.featureName> in current module">;
+
 def sanitize_EQ : CommaJoined<["-"], "sanitize=">,
   Flags<[FrontendOption, NoInteractiveOption]>, MetaVarName<"<check>">,
   HelpText<"Turn on runtime checks for erroneous behavior.">;

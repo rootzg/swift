@@ -1633,7 +1633,8 @@ Parser::evaluateConditionalCompilationExpr(Expr *condition) {
         !fnName.equals("_endian") &&
         !fnName.equals("_runtime") &&
         !fnName.equals("swift") &&
-        !fnName.equals("_compiler_version")) {
+        !fnName.equals("_compiler_version") &&
+        !fnName.equals("feature")) {
       diagnose(CE->getLoc(), diag::unsupported_platform_condition_expression);
       return ConditionalCompilationExprState::error();
     }
@@ -1695,6 +1696,51 @@ Parser::evaluateConditionalCompilationExpr(Expr *condition) {
       auto VersionNewEnough = thisVersion >= versionRequirement.getValue();
       return {VersionNewEnough,
               ConditionalCompilationExprKind::LanguageVersion};
+
+    } else if (fnName.equals("feature")) {
+
+      DeclName featureName;
+      SmallVector<ModuleDecl *, 4> searchMods;
+
+      if (auto UDE = dyn_cast<UnresolvedDotExpr>(PE->getSubExpr())) {
+        // Qualified feature-references: feature(SomeModule.someFeature)
+        // Just search specified module.
+        featureName = UDE->getName();
+        if (auto UDRE = dyn_cast<UnresolvedDeclRefExpr>(UDE->getBase())) {
+          auto modIdent = UDRE->getName().getBaseName();
+          auto mod = Context.getModuleByName(modIdent.str());
+          if (mod)
+            searchMods.push_back(mod);
+          else {
+            diagnose(UDRE->getLoc(),
+                     diag::unknown_feature_module_condition_argument,
+                     modIdent.str());
+            return {false, ConditionalCompilationExprKind::DeclRef};
+          }
+        }
+      } else if (auto UDRE = dyn_cast<UnresolvedDeclRefExpr>(PE->getSubExpr())) {
+        // Unqualified feature-references: feature(someFeature)
+        // Search current module, Swift (stdlib).
+        searchMods.push_back(CurDeclContext->getParentModule());
+        searchMods.push_back(Context.getStdlibModule(true));
+        featureName = UDRE->getName();
+      }
+
+      auto featureStr = featureName.getBaseName().str();
+      auto kind = ConditionalCompilationExprKind::DeclRef;
+      for (auto const mod : searchMods) {
+        if (mod->isStdlibModule())
+          kind = ConditionalCompilationExprKind::LanguageFeature;
+        if (mod->isFeatureKnown(featureStr)) {
+          return ConditionalCompilationExprState(
+            mod->isFeatureEnabled(featureStr), kind);
+        }
+      }
+      diagnose(PE->getSubExpr()->getLoc(),
+               diag::unknown_feature_condition_argument,
+               featureStr);
+      return {false, kind};
+
     } else {
       if (auto UDRE = dyn_cast<UnresolvedDeclRefExpr>(PE->getSubExpr())) {
         // The sub expression should be an UnresolvedDeclRefExpr (we won't

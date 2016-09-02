@@ -194,6 +194,19 @@ public:
   /// \see ModuleDecl::isTestingEnabled
   bool EnableTesting = false;
 
+  /// Indicates which feature-flags are enabled in this module.
+  ///
+  /// \see ModuleDecl::isFeatureEnabled
+  std::vector<std::string> EnabledFeatures;
+
+  /// Indicates whether unstable features are allowed to be enabled
+  /// at all; this is a compile-time option, only true on snapshots.
+#ifdef SWIFT_ALLOW_UNSTABLE_FEATURES
+  static const bool AllowUnstableFeatures = true;
+#else
+  static const bool AllowUnstableFeatures = false;
+#endif
+
   /// Enables the "fully resilient" resilience strategy.
   ///
   /// \see ResilienceStrategy::Resilient

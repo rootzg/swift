@@ -207,6 +207,8 @@ private:
     unsigned ResilienceStrategy : 2;
   } Flags;
 
+  llvm::StringMap<bool> Features;
+
   /// The magic __dso_handle variable.
   VarDecl *DSOHandle;
 
@@ -487,6 +489,27 @@ public:
   /// \returns true if this module has a main entry point.
   bool hasEntryPoint() const {
     return EntryPointInfo.hasEntryPoint();
+  }
+
+  /// Set a feature-flag on this module.
+  void setFeature(StringRef featureName, bool enabled) {
+    Features[featureName] = enabled;
+  }
+
+  /// Test for defined-ness of a feature-flag on this module.
+  bool isFeatureKnown(StringRef featureName) const {
+    return Features.find(featureName) != Features.end();
+  }
+
+  /// Test for a feature-flag set to true on this module.
+  bool isFeatureEnabled(StringRef featureName) const {
+    auto i = Features.find(featureName);
+    return (i != Features.end() && i->second);
+  }
+
+  /// Return all the feature-flags (mainly for serialization).
+  llvm::StringMap<bool> const& getFeatures() const {
+    return Features;
   }
 
   /// Returns the associated clang module if one exists.

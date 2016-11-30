@@ -35,6 +35,7 @@
 #include "swift/Parse/Lexer.h"
 #include "swift/Parse/Parser.h"
 #include "swift/Config.h"
+#include "swift/Strings.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Mangle.h"
 #include "clang/Basic/CharInfo.h"
@@ -719,6 +720,15 @@ ClangImporter::create(ASTContext &ctx,
   auto ppTracker = llvm::make_unique<BridgingPPTracker>(importer->Impl);
   clangPP.addPPCallbacks(std::move(ppTracker));
 
+  // If we're going to load a bridging PCH, we need to know this now in order to
+  // clobber clangPP's predefined-macros buffer, otherwise it will provide macro
+  // definitions that collide with those in the PCH. This is actually simulating
+  // something clang does when it attaches to a PCH ASTReader as well, it's just
+  // interleaving the steps in an unusual order.
+  if (llvm::sys::path::extension(importerOpts.BridgingHeader).endswith(
+        PCH_EXTENSION))
+    clangPP.setPredefines("");
+
   instance.createModuleManager();
   instance.getModuleManager()->addListener(
          std::unique_ptr<clang::ASTReaderListener>(
@@ -926,6 +936,9 @@ bool ClangImporter::importHeader(StringRef header, Module *adapter,
 bool ClangImporter::importBridgingHeader(StringRef header, Module *adapter,
                                          SourceLoc diagLoc,
                                          bool trackParsedSymbols) {
+  if (llvm::sys::path::extension(header).endswith(PCH_EXTENSION)) {
+    return importBridgingPCH(header, adapter);
+  }
   clang::FileManager &fileManager = Impl.Instance->getFileManager();
   const clang::FileEntry *headerFile = fileManager.getFile(header,
                                                            /*OpenFile=*/true);
@@ -946,6 +959,29 @@ bool ClangImporter::importBridgingHeader(StringRef header, Module *adapter,
 
   return Impl.importHeader(adapter, header, diagLoc, trackParsedSymbols,
                            std::move(sourceBuffer));
+}
+
+bool ClangImporter::importBridgingPCH(StringRef pchFile, ModuleDecl *adapter,
+                                      SourceLoc diagLoc)
+{
+  clang::ASTReader &R = *Impl.Instance->getModuleManager();
+  SmallVector<clang::ASTReader::ImportedSubmodule, 2> Imports;
+  switch (R.ReadAST(pchFile, clang::serialization::MK_PCH,
+                    clang::SourceLocation(), 0, &Imports)) {
+  case clang::ASTReader::Success:
+    Impl.ImportedHeaderOwners.push_back(adapter);
+    for (auto I : Imports) {
+      clang::Module *CM = R.getSubmodule(I.ID);
+      assert(CM);
+      Impl.getClangPreprocessor().makeModuleVisible(CM, I.ImportLoc);
+      R.makeModuleVisible(CM, clang::Module::AllVisible, I.ImportLoc);
+      Module *M = Impl.finishLoadingClangModule(*this, CM, /*adapter=*/true);
+      Impl.ImportedHeaderExports.push_back({ /*filter=*/{}, M });
+    }
+    return false;
+  default:
+    return true;
+  }
 }
 
 std::string ClangImporter::getBridgingHeaderContents(StringRef headerPath,

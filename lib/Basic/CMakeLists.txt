@@ -91,6 +91,7 @@ add_swift_library(swiftBasic STATIC
   Remangle.cpp
   Remangler.cpp
   SourceLoc.cpp
+  Statistic.cpp
   StringExtras.cpp
   TaskQueue.cpp
   ThreadSafeRefCounted.cpp

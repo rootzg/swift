@@ -16,6 +16,7 @@
 #include "swift/AST/DiagnosticsDriver.h"
 #include "swift/Basic/Fallthrough.h"
 #include "swift/Basic/Program.h"
+#include "swift/Basic/Statistic.h"
 #include "swift/Basic/TaskQueue.h"
 #include "swift/Basic/Version.h"
 #include "swift/Basic/type_traits.h"
@@ -52,7 +53,8 @@ Compilation::Compilation(DiagnosticEngine &Diags, OutputLevel Level,
                          bool EnableIncrementalBuild,
                          bool SkipTaskExecution,
                          bool SaveTemps,
-                         bool ShowDriverTimeCompilation)
+                         bool ShowDriverTimeCompilation,
+                         std::unique_ptr<UnifiedStatsReporter> StatsReporter)
   : Diags(Diags), Level(Level), RawInputArgs(std::move(InputArgs)),
     TranslatedArgs(std::move(TranslatedArgs)), 
     InputFilesWithTypes(std::move(InputsWithTypes)), ArgsHash(ArgsHash),
@@ -61,7 +63,8 @@ Compilation::Compilation(DiagnosticEngine &Diags, OutputLevel Level,
     SkipTaskExecution(SkipTaskExecution),
     EnableIncrementalBuild(EnableIncrementalBuild),
     SaveTemps(SaveTemps),
-    ShowDriverTimeCompilation(ShowDriverTimeCompilation) {
+    ShowDriverTimeCompilation(ShowDriverTimeCompilation),
+    Stats(std::move(StatsReporter)) {
 };
 
 using CommandSet = llvm::SmallPtrSet<const Job *, 16>;
@@ -282,9 +285,9 @@ int Compilation::performJobsImpl() {
   SmallPtrSet<const Job *, 16> DeferredCommands;
   SmallVector<const Job *, 16> InitialOutOfDateCommands;
 
-  DependencyGraph::MarkTracer ActualIncrementalTracer;
+  DependencyGraph::MarkTracer ActualIncrementalTracer(Stats.get());
   DependencyGraph::MarkTracer *IncrementalTracer = nullptr;
-  if (ShowIncrementalBuildDecisions)
+  if (ShowIncrementalBuildDecisions || Stats)
     IncrementalTracer = &ActualIncrementalTracer;
 
   auto noteBuilding = [&] (const Job *cmd, StringRef reason) {
@@ -445,6 +448,8 @@ int Compilation::performJobsImpl() {
   // task began.
   auto taskBegan = [&] (ProcessId Pid, void *Context) {
     // TODO: properly handle task began.
+    if (Stats)
+      Stats->getDriverCounters().NumDriverJobsRun++;
     const Job *BeganCmd = (const Job *)Context;
 
     if (ShowDriverTimeCompilation) {
@@ -656,6 +661,8 @@ int Compilation::performJobsImpl() {
 
     // Mark all remaining deferred commands as skipped.
     for (const Job *Cmd : DeferredCommands) {
+      if (Stats)
+        Stats->getDriverCounters().NumDriverJobsSkipped++;
       if (Level == OutputLevel::Parseable) {
         // Provide output indicating this command was skipped if parseable output
         // was requested.

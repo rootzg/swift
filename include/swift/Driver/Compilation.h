@@ -21,6 +21,7 @@
 #include "swift/Driver/Util.h"
 #include "swift/Basic/ArrayRefView.h"
 #include "swift/Basic/LLVM.h"
+#include "swift/Basic/Statistic.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/TimeValue.h"
@@ -132,6 +133,9 @@ private:
   /// execute.
   bool ShowDriverTimeCompilation;
 
+  /// When non-null, record various high-level counters to this.
+  std::unique_ptr<UnifiedStatsReporter> Stats;
+
   /// When true, dumps information about why files are being scheduled to be
   /// rebuilt.
   bool ShowIncrementalBuildDecisions = false;
@@ -150,7 +154,8 @@ public:
               bool EnableIncrementalBuild = false,
               bool SkipTaskExecution = false,
               bool SaveTemps = false,
-              bool ShowDriverTimeCompilation = false);
+              bool ShowDriverTimeCompilation = false,
+              std::unique_ptr<UnifiedStatsReporter> Stats = nullptr);
   ~Compilation();
 
   ArrayRefView<std::unique_ptr<const Job>, const Job *, Compilation::unwrap>

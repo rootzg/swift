@@ -6503,6 +6503,7 @@ public:
   }
 
   void visitExtensionDecl(ExtensionDecl *ED) {
+    TC.computeDefaultAccessibility(ED);
     TC.validateExtension(ED);
 
     TC.checkDeclAttributesEarly(ED);

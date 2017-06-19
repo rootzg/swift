@@ -1343,6 +1343,7 @@ void Driver::buildActions(const ToolChain &TC,
 
   ActionList AllModuleInputs;
   ActionList AllLinkerInputs;
+  JobAction *PCH = nullptr;
 
   switch (OI.CompilerMode) {
   case OutputInfo::Mode::StandardCompile: {
@@ -1351,7 +1352,6 @@ void Driver::buildActions(const ToolChain &TC,
     // standard-compile (non-WMO) mode, we take the opportunity to precompile
     // the header into a temporary PCH, and replace the import argument with the
     // PCH in the subsequent frontend jobs.
-    JobAction *PCH = nullptr;
     if (Args.hasFlag(options::OPT_enable_bridging_pch,
                      options::OPT_disable_bridging_pch,
                      true)) {
@@ -1568,7 +1568,10 @@ void Driver::buildActions(const ToolChain &TC,
       !AllModuleInputs.empty()) {
     // We're performing multiple compilations; set up a merge module step
     // so we generate a single swiftmodule as output.
-    MergeModuleAction.reset(new MergeModuleJobAction(AllModuleInputs));
+    auto MMA = new MergeModuleJobAction(AllModuleInputs);
+    if (PCH)
+      MMA->addInput(PCH);
+    MergeModuleAction.reset(MMA);
     MergeModuleAction->setOwnsInputs(false);
   }
 

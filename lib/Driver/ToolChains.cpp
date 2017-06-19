@@ -40,6 +40,17 @@ using namespace llvm::opt;
 /// The limit for passing a list of files on the command line.
 static const size_t TOO_MANY_FILES = 128;
 
+static size_t countInputsOfType(ArrayRef<const Job *> Jobs,
+                                types::ID InputType) {
+  size_t c = 0;
+  for (auto &Cmd : Jobs) {
+    auto &output = Cmd->getOutput().getAnyOutputForType(InputType);
+    if (!output.empty())
+      c++;
+  }
+  return c;
+}
+
 static void addInputsOfType(ArgStringList &Arguments,
                             ArrayRef<const Action *> Inputs,
                             types::ID InputType) {
@@ -176,6 +187,47 @@ static void addCommonFrontendArgs(const ToolChain &TC,
   if (!SerializedDiagnosticsPath.empty()) {
     arguments.push_back("-serialize-diagnostics-path");
     arguments.push_back(SerializedDiagnosticsPath.c_str());
+  }
+}
+
+
+static void
+addPossiblyRewrittenBridgingHeaderArgs(const ArrayRef<const Job *> &Inputs,
+                                       const ArgList &Args,
+                                       const OutputInfo &OI,
+                                       ArgStringList &Arguments) {
+  // Pass along an -import-objc-header arg, replacing the argument with the name
+  // of any input PCH to the current action if one is present.
+  if (Args.hasArgNoClaim(options::OPT_import_objc_header)) {
+    bool ForwardAsIs = true;
+    bool bridgingPCHIsEnabled =
+        Args.hasFlag(options::OPT_enable_bridging_pch,
+                     options::OPT_disable_bridging_pch,
+                     true);
+    bool usePersistentPCH = bridgingPCHIsEnabled &&
+        Args.hasArg(options::OPT_pch_output_dir);
+    if (!usePersistentPCH) {
+      for (auto *IJ : Inputs) {
+        if (!IJ->getOutput().getAnyOutputForType(types::TY_PCH).empty()) {
+          Arguments.push_back("-import-objc-header");
+          addInputsOfType(Arguments, Inputs, types::TY_PCH);
+          ForwardAsIs = false;
+          break;
+        }
+      }
+    }
+    if (ForwardAsIs) {
+      Args.AddLastArg(Arguments, options::OPT_import_objc_header);
+    }
+    if (usePersistentPCH) {
+      Args.AddLastArg(Arguments, options::OPT_pch_output_dir);
+      if (OI.CompilerMode == OutputInfo::Mode::StandardCompile) {
+        // In the 'multiple invocations for each file' mode we don't need to
+        // validate the PCH every time, it has been validated with the initial
+        // -emit-pch invocation.
+        Arguments.push_back("-pch-disable-validation");
+      }
+    }
   }
 }
 
@@ -334,39 +386,8 @@ ToolChain::constructInvocation(const CompileJobAction &job,
   addCommonFrontendArgs(*this, context.OI, context.Output, context.Args,
                         Arguments);
 
-  // Pass along an -import-objc-header arg, replacing the argument with the name
-  // of any input PCH to the current action if one is present.
-  if (context.Args.hasArgNoClaim(options::OPT_import_objc_header)) {
-    bool ForwardAsIs = true;
-    bool bridgingPCHIsEnabled =
-        context.Args.hasFlag(options::OPT_enable_bridging_pch,
-                             options::OPT_disable_bridging_pch,
-                             true);
-    bool usePersistentPCH = bridgingPCHIsEnabled &&
-        context.Args.hasArg(options::OPT_pch_output_dir);
-    if (!usePersistentPCH) {
-      for (auto *IJ : context.Inputs) {
-        if (!IJ->getOutput().getAnyOutputForType(types::TY_PCH).empty()) {
-          Arguments.push_back("-import-objc-header");
-          addInputsOfType(Arguments, context.Inputs, types::TY_PCH);
-          ForwardAsIs = false;
-          break;
-        }
-      }
-    }
-    if (ForwardAsIs) {
-      context.Args.AddLastArg(Arguments, options::OPT_import_objc_header);
-    }
-    if (usePersistentPCH) {
-      context.Args.AddLastArg(Arguments, options::OPT_pch_output_dir);
-      if (context.OI.CompilerMode == OutputInfo::Mode::StandardCompile) {
-        // In the 'multiple invocations for each file' mode we don't need to
-        // validate the PCH every time, it has been validated with the initial
-        // -emit-pch invocation.
-        Arguments.push_back("-pch-disable-validation");
-      }
-    }
-  }
+  addPossiblyRewrittenBridgingHeaderArgs(context.Inputs, context.Args,
+                                         context.OI, Arguments);
 
   // Pass the optimization level down to the frontend.
   context.Args.AddLastArg(Arguments, options::OPT_O_Group);
@@ -658,9 +679,10 @@ ToolChain::constructInvocation(const MergeModuleJobAction &job,
     (void)origLen;
     addInputsOfType(Arguments, context.Inputs, types::TY_SwiftModuleFile);
     addInputsOfType(Arguments, context.InputActions, types::TY_SwiftModuleFile);
-    assert(Arguments.size() - origLen >=
+    size_t numPch = countInputsOfType(context.Inputs, types::TY_PCH);
+    assert(Arguments.size() + numPch - origLen >=
            context.Inputs.size() + context.InputActions.size());
-    assert((Arguments.size() - origLen == context.Inputs.size() ||
+    assert((Arguments.size() + numPch - origLen == context.Inputs.size() ||
             !context.InputActions.empty()) &&
            "every input to MergeModule must generate a swiftmodule");
   }
@@ -671,7 +693,9 @@ ToolChain::constructInvocation(const MergeModuleJobAction &job,
 
   addCommonFrontendArgs(*this, context.OI, context.Output, context.Args,
                         Arguments);
-  context.Args.AddLastArg(Arguments, options::OPT_import_objc_header);
+
+  addPossiblyRewrittenBridgingHeaderArgs(context.Inputs, context.Args,
+                                         context.OI, Arguments);
 
   Arguments.push_back("-module-name");
   Arguments.push_back(context.Args.MakeArgString(context.OI.ModuleName));

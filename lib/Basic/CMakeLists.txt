@@ -68,6 +68,7 @@ add_swift_library(swiftBasic STATIC
   Cache.cpp
   ClusteredBitVector.cpp
   DiverseStack.cpp
+  DebugTrace.cpp
   Edit.cpp
   EditorPlaceholder.cpp
   FileSystem.cpp

@@ -176,7 +176,7 @@ namespace {
         Importer.addSearchPath(path, /*isFramework*/false, /*isSystem=*/false);
       }
 
-      auto PCH = Importer.getOrCreatePCH(ImporterOpts, SwiftPCHHash);
+      auto PCH = Importer.getOrCreatePCH(ImporterOpts, searchPathOpts, SwiftPCHHash);
       if (PCH.hasValue()) {
         Impl.getClangInstance()->getPreprocessorOpts().ImplicitPCHInclude =
             PCH.getValue();
@@ -806,6 +806,7 @@ ClangImporter::getPCHFilename(const ClangImporterOptions &ImporterOptions,
 
 Optional<std::string>
 ClangImporter::getOrCreatePCH(const ClangImporterOptions &ImporterOptions,
+                              const SearchPathOptions &searchPathOpts,
                               StringRef SwiftPCHHash) {
   bool isExplicit;
   auto PCHFilename = getPCHFilename(ImporterOptions, SwiftPCHHash,
@@ -823,7 +824,8 @@ ClangImporter::getOrCreatePCH(const ClangImporterOptions &ImporterOptions,
       return None;
     }
     auto FailedToEmit = emitBridgingPCH(ImporterOptions.BridgingHeader,
-                                        PCHFilename.getValue());
+                                        PCHFilename.getValue(),
+                                        searchPathOpts);
     if (FailedToEmit) {
       return None;
     }
@@ -1052,18 +1054,28 @@ ClangImporter::create(ASTContext &ctx,
   return importer;
 }
 
-bool ClangImporter::addSearchPath(StringRef newSearchPath, bool isFramework,
-                                  bool isSystem) {
-  clang::FileManager &fileMgr = Impl.Instance->getFileManager();
+static bool
+addSearchPathToInstancePreprocessor(clang::CompilerInstance &CI,
+                                    StringRef newSearchPath, bool isFramework,
+                                    bool isSystem) {
+  clang::FileManager &fileMgr = CI.getFileManager();
   const clang::DirectoryEntry *entry = fileMgr.getDirectory(newSearchPath);
   if (!entry)
     return true;
 
-  auto &headerSearchInfo = Impl.getClangPreprocessor().getHeaderSearchInfo();
+  auto &headerSearchInfo = CI.getPreprocessor().getHeaderSearchInfo();
   headerSearchInfo.AddSearchPath({entry, isSystem ?
                                            clang::SrcMgr::C_System :
                                            clang::SrcMgr::C_User, isFramework},
                                  /*isAngled=*/true);
+  return false;
+}
+
+bool ClangImporter::addSearchPath(StringRef newSearchPath, bool isFramework,
+                                  bool isSystem) {
+  if (addSearchPathToInstancePreprocessor(*Impl.Instance, newSearchPath,
+                                          isFramework, isSystem))
+    return true;
 
   // In addition to changing the current preprocessor directly, we still need
   // to change the options structure for future module-building.
@@ -1221,6 +1233,17 @@ bool ClangImporter::importHeader(StringRef header, ModuleDecl *adapter,
                            std::move(sourceBuffer), true);
 }
 
+static std::unique_ptr<llvm::MemoryBuffer>
+bridgingHeaderImportLineBuffer(StringRef header) {
+  llvm::SmallString<128> importLine{"#import \""};
+  importLine += header;
+  importLine += "\"\n";
+  return std::unique_ptr<llvm::MemoryBuffer>{
+      llvm::MemoryBuffer::getMemBufferCopy(
+          importLine,
+          swift::ClangImporter::Implementation::bridgingHeaderBufferName)};
+}
+
 bool ClangImporter::importBridgingHeader(StringRef header, ModuleDecl *adapter,
                                          SourceLoc diagLoc,
                                          bool trackParsedSymbols,
@@ -1242,15 +1265,7 @@ bool ClangImporter::importBridgingHeader(StringRef header, ModuleDecl *adapter,
                                      header);
     return true;
   }
-
-  llvm::SmallString<128> importLine{"#import \""};
-  importLine += header;
-  importLine += "\"\n";
-
-  std::unique_ptr<llvm::MemoryBuffer> sourceBuffer{
-    llvm::MemoryBuffer::getMemBufferCopy(
-      importLine, Implementation::bridgingHeaderBufferName)
-  };
+  auto sourceBuffer = bridgingHeaderImportLineBuffer(header);
   return Impl.importHeader(adapter, header, diagLoc, trackParsedSymbols,
                            std::move(sourceBuffer), implicitImport);
 }
@@ -1302,18 +1317,44 @@ std::string ClangImporter::getBridgingHeaderContents(StringRef headerPath,
   return result;
 }
 
+class EmitPCHAction : public clang::GeneratePCHAction {
+public:
+  const SearchPathOptions &searchPathOpts;
+  EmitPCHAction(const SearchPathOptions &s) : searchPathOpts(s) {}
+  bool BeginSourceFileAction(clang::CompilerInstance &CI,
+                             StringRef Filename) override {
+    for (const auto &framepath : searchPathOpts.FrameworkSearchPaths) {
+      addSearchPathToInstancePreprocessor(CI, framepath.Path,
+                                          /*isFramework=*/true,
+                                          framepath.IsSystem);
+    }
+    for (auto path : searchPathOpts.ImportSearchPaths) {
+      addSearchPathToInstancePreprocessor(CI, path,
+                                          /*isFramework=*/true,
+                                          /*isSystem=*/false);
+    }
+    return true;
+  }
+};
+
 bool
 ClangImporter::emitBridgingPCH(StringRef headerPath,
-                               StringRef outputPCHPath) {
+                               StringRef outputPCHPath,
+                               const SearchPathOptions &searchPathOpts) {
   auto invocation = std::make_shared<clang::CompilerInvocation>
     (clang::CompilerInvocation(*Impl.Invocation));
   invocation->getFrontendOpts().DisableFree = false;
   invocation->getFrontendOpts().Inputs.clear();
   invocation->getFrontendOpts().Inputs.push_back(
-      clang::FrontendInputFile(headerPath, clang::IK_ObjC));
+      clang::FrontendInputFile(Implementation::bridgingHeaderBufferName,
+                               clang::IK_ObjC));
   invocation->getFrontendOpts().OutputFile = outputPCHPath;
   invocation->getFrontendOpts().ProgramAction = clang::frontend::GeneratePCH;
-  invocation->getPreprocessorOpts().resetNonModularOptions();
+  clang::PreprocessorOptions &ppOpts = invocation->getPreprocessorOpts();
+  ppOpts.resetNonModularOptions();
+  auto sourceBuffer = bridgingHeaderImportLineBuffer(headerPath);
+  ppOpts.addRemappedFile(Implementation::bridgingHeaderBufferName,
+                         sourceBuffer.release());
 
   clang::CompilerInstance emitInstance(
     Impl.Instance->getPCHContainerOperations());
@@ -1327,7 +1368,7 @@ ClangImporter::emitBridgingPCH(StringRef headerPath,
   emitInstance.setTarget(&Impl.Instance->getTarget());
 
   std::unique_ptr<clang::FrontendAction> action;
-  action.reset(new clang::GeneratePCHAction());
+  action.reset(new EmitPCHAction(searchPathOpts));
   if (!emitInstance.getFrontendOpts().IndexStorePath.empty()) {
     action = clang::index::
       createIndexDataRecordingAction(emitInstance.getFrontendOpts(),

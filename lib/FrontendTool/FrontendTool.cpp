@@ -471,12 +471,15 @@ static bool performCompile(CompilerInstance &Instance,
       ImporterOpts.BridgingHeader = Invocation.getInputFilenames()[0];
       // Create or validate a persistent PCH.
       auto SwiftPCHHash = Invocation.getPCHHash();
-      auto PCH = clangImporter->getOrCreatePCH(ImporterOpts, SwiftPCHHash);
+      auto PCH = clangImporter->getOrCreatePCH(ImporterOpts,
+                                               Invocation.getSearchPathOptions(),
+                                               SwiftPCHHash);
       return !PCH.hasValue();
     }
     return clangImporter->emitBridgingPCH(
       Invocation.getInputFilenames()[0],
-      opts.getSingleOutputFilename());
+        opts.getSingleOutputFilename(),
+        Invocation.getSearchPathOptions());
   }
 
   IRGenOptions &IRGenOpts = Invocation.getIRGenOptions();

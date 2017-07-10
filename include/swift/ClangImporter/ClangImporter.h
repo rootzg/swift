@@ -57,6 +57,7 @@ class LazyResolver;
 class ModuleDecl;
 class NominalTypeDecl;
 class VisibleDeclConsumer;
+class SearchPathOptions;
 enum class SelectorSplitKind;
 
 /// \brief Class that imports Clang modules into Swift, mapping directly
@@ -242,7 +243,8 @@ public:
   ///
   /// \sa clang::GeneratePCHAction
   bool emitBridgingPCH(StringRef headerPath,
-                       StringRef outputPCHPath);
+                       StringRef outputPCHPath,
+                       const SearchPathOptions &searchPathOpts);
 
   /// Returns true if a clang CompilerInstance can successfully read in a PCH,
   /// assuming it exists, with the current options. This can be used to find out
@@ -307,6 +309,7 @@ public:
 
   Optional<std::string>
   getOrCreatePCH(const ClangImporterOptions &ImporterOptions,
+                 const SearchPathOptions &searchPathOpts,
                  StringRef SwiftPCHHash);
   Optional<std::string>
   /// \param isExplicit true if the PCH filename was passed directly

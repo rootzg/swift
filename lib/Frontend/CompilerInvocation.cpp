@@ -358,6 +358,8 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
       Action = FrontendOptions::DumpTypeRefinementContexts;
     } else if (Opt.matches(OPT_dump_interface_hash)) {
       Action = FrontendOptions::DumpInterfaceHash;
+    } else if (Opt.matches(OPT_dump_decl_interface_hashes)) {
+      Action = FrontendOptions::DumpDeclInterfaceHashes;
     } else if (Opt.matches(OPT_print_ast)) {
       Action = FrontendOptions::PrintAST;
     } else if (Opt.matches(OPT_repl) ||
@@ -534,6 +536,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case FrontendOptions::Typecheck:
     case FrontendOptions::DumpParse:
     case FrontendOptions::DumpInterfaceHash:
+    case FrontendOptions::DumpDeclInterfaceHashes:
     case FrontendOptions::DumpAST:
     case FrontendOptions::EmitSyntax:
     case FrontendOptions::PrintAST:
@@ -746,6 +749,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case FrontendOptions::NoneAction:
     case FrontendOptions::DumpParse:
     case FrontendOptions::DumpInterfaceHash:
+    case FrontendOptions::DumpDeclInterfaceHashes:
     case FrontendOptions::DumpAST:
     case FrontendOptions::EmitSyntax:
     case FrontendOptions::PrintAST:
@@ -778,6 +782,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case FrontendOptions::NoneAction:
     case FrontendOptions::DumpParse:
     case FrontendOptions::DumpInterfaceHash:
+    case FrontendOptions::DumpDeclInterfaceHashes:
     case FrontendOptions::DumpAST:
     case FrontendOptions::EmitSyntax:
     case FrontendOptions::PrintAST:
@@ -811,6 +816,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case FrontendOptions::Parse:
     case FrontendOptions::DumpParse:
     case FrontendOptions::DumpInterfaceHash:
+    case FrontendOptions::DumpDeclInterfaceHashes:
     case FrontendOptions::DumpAST:
     case FrontendOptions::EmitSyntax:
     case FrontendOptions::PrintAST:
@@ -846,6 +852,7 @@ static bool ParseFrontendArgs(FrontendOptions &Opts, ArgList &Args,
     case FrontendOptions::Typecheck:
     case FrontendOptions::DumpParse:
     case FrontendOptions::DumpInterfaceHash:
+    case FrontendOptions::DumpDeclInterfaceHashes:
     case FrontendOptions::DumpAST:
     case FrontendOptions::EmitSyntax:
     case FrontendOptions::PrintAST:

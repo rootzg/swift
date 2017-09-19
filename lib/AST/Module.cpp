@@ -1430,6 +1430,32 @@ void SourceFile::setTypeRefinementContext(TypeRefinementContext *Root) {
   TRC = Root;
 }
 
+static void dumpDeclInterfaceHashesRecursive(llvm::raw_ostream &out,
+                                             StringRef prefix,
+                                             const Decl *D) {
+  std::string subprefix = prefix;
+  if (auto *VD = dyn_cast<ValueDecl>(D)) {
+    llvm::SmallString<32> str;
+    llvm::MD5::MD5Result res = VD->getInterfaceHash();
+    llvm::MD5::stringifyResult(res, str);
+    out << prefix << VD->getBaseName().userFacingName()
+        << " " << str << '\n';
+    subprefix += VD->getBaseName().userFacingName();
+    subprefix += '.';
+  }
+  if (auto *IDC = dyn_cast<IterableDeclContext>(D)) {
+    for (const Decl *M : IDC->getMembers()) {
+      dumpDeclInterfaceHashesRecursive(out, subprefix, M);
+    }
+  }
+}
+
+void SourceFile::dumpDeclInterfaceHashes(llvm::raw_ostream &out) {
+  for (const Decl *D : Decls) {
+    dumpDeclInterfaceHashesRecursive(out, "", D);
+  }
+}
+
 //===----------------------------------------------------------------------===//
 // Miscellaneous
 //===----------------------------------------------------------------------===//

@@ -587,6 +587,7 @@ static bool performCompile(CompilerInstance &Instance,
       Action == FrontendOptions::DumpParse ||
       Action == FrontendOptions::EmitSyntax ||
       Action == FrontendOptions::DumpInterfaceHash ||
+      Action == FrontendOptions::DumpDeclInterfaceHashes ||
       Action == FrontendOptions::EmitImportedModules)
     Instance.performParseOnly();
   else
@@ -632,7 +633,8 @@ static bool performCompile(CompilerInstance &Instance,
       Action == FrontendOptions::PrintAST ||
       Action == FrontendOptions::DumpScopeMaps ||
       Action == FrontendOptions::DumpTypeRefinementContexts ||
-      Action == FrontendOptions::DumpInterfaceHash) {
+      Action == FrontendOptions::DumpInterfaceHash ||
+      Action == FrontendOptions::DumpDeclInterfaceHashes) {
     SourceFile *SF = PrimarySourceFile;
     if (!SF) {
       SourceFileKind Kind = Invocation.getSourceFileKind();
@@ -688,6 +690,8 @@ static bool performCompile(CompilerInstance &Instance,
       SF->getTypeRefinementContext()->dump(llvm::errs(), Context.SourceMgr);
     else if (Action == FrontendOptions::DumpInterfaceHash)
       SF->dumpInterfaceHash(llvm::errs());
+    else if (Action == FrontendOptions::DumpDeclInterfaceHashes)
+      SF->dumpDeclInterfaceHashes(llvm::errs());
     else if (Action == FrontendOptions::EmitSyntax) {
       emitSyntax(SF, Invocation.getLangOptions(), Instance.getSourceMgr(),
                  opts.getSingleOutputFilename());

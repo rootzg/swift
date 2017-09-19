@@ -1071,6 +1071,8 @@ public:
     out << str << '\n';
   }
 
+  void dumpDeclInterfaceHashes(llvm::raw_ostream &out);
+
   std::vector<Token> &getTokenVector() {
     assert(shouldKeepTokens() && "Disabled");
     return *AllCorrectedTokens;

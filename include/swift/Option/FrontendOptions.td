@@ -425,6 +425,10 @@ def dump_interface_hash : Flag<["-"], "dump-interface-hash">,
    HelpText<"Parse input file(s) and dump interface token hash(es)">,
    ModeOpt;
 
+def dump_decl_interface_hashes : Flag<["-"], "dump-decl-interface-hashes">,
+   HelpText<"Parse input file(s) and dump decl-interface token hashes">,
+   ModeOpt;
+
 def dump_api_path : Separate<["-"], "dump-api-path">,
   HelpText<"The path to output swift interface files for the compiled source files">;
 

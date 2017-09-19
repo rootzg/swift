@@ -36,6 +36,7 @@
 #include "swift/Basic/Range.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/Support/MD5.h"
 #include "llvm/Support/TrailingObjects.h"
 
 namespace swift {
@@ -2087,6 +2088,9 @@ class ValueDecl : public Decl {
   SourceLoc NameLoc;
   llvm::PointerIntPair<Type, 3, OptionalEnum<AccessLevel>> TypeAndAccess;
 
+  /// A hash of all interface-contributing tokens for this decl.
+  llvm::MD5::MD5Result InterfaceHash;
+
 protected:
   ValueDecl(DeclKind K,
             llvm::PointerUnion<DeclContext *, ASTContext *> context,
@@ -2313,6 +2317,16 @@ public:
   /// DeclRefExpr or MemberRefExpr use of this value in the specified
   /// context.
   AccessSemantics getAccessSemanticsFromContext(const DeclContext *DC) const;
+
+  /// Set the interface hash for this declaration.
+  void setInterfaceHash(llvm::MD5::MD5Result const &H) {
+    InterfaceHash = H;
+  }
+
+  /// Get the interface hash for this declaration.
+  llvm::MD5::MD5Result const &getInterfaceHash() const {
+    return InterfaceHash;
+  }
 
   /// Print a reference to the given declaration.
   std::string printRef() const;

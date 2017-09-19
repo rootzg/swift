@@ -285,6 +285,10 @@ public:
     /// The leading whitespace for this marker, if it has already been
     /// computed.
     Optional<StringRef> LeadingWhitespace;
+
+    /// If kind == Declaration, hash of interface tokens accumulated
+    /// in the declaration.
+    llvm::MD5 DeclInterfaceHash;
   };
 
   /// An RAII object that notes when we have seen a structure marker.
@@ -301,7 +305,7 @@ public:
     StructureMarkerRAII(Parser &parser, SourceLoc loc,
                                StructureMarkerKind kind)
       : P(parser) {
-      P.StructureMarkers.push_back({loc, kind, None});
+      P.StructureMarkers.push_back({loc, kind, None, llvm::MD5()});
 
       if (P.StructureMarkers.size() >= MaxDepth) {
         diagnoseOverflow();
@@ -321,6 +325,8 @@ public:
   /// structural elements actively being parsed, including the start
   /// of declarations, statements, and opening operators of various
   /// kinds.
+  ///
+  /// Also includes an interface hash, for declaration structures.
   ///
   /// This vector is managed by \c StructureMarkerRAII objects.
   llvm::SmallVector<StructureMarker, 16> StructureMarkers;
@@ -443,6 +449,7 @@ public:
   /// Consume a token that we created on the fly to correct the original token
   /// stream from lexer.
   void consumeExtraToken(Token K);
+  void recordDeclInterfaceToken(StringRef T);
   SourceLoc consumeTokenWithoutFeedingReceiver();
   SourceLoc consumeToken();
   SourceLoc consumeToken(tok K) {

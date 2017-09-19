@@ -2492,6 +2492,13 @@ Parser::parseDecl(ParseDeclOptions Flags,
     Decl *D = DeclResult.get();
     if (!declWasHandledAlready(D))
       Handler(DeclResult.get());
+    if (auto *VD = dyn_cast<ValueDecl>(D)) {
+      assert(!StructureMarkers.empty());
+      assert(StructureMarkers.back().Kind == StructureMarkerKind::Declaration);
+      llvm::MD5::MD5Result HR;
+      StructureMarkers.back().DeclInterfaceHash.final(HR);
+      VD->setInterfaceHash(HR);
+    }
   }
 
   if (!DeclResult.isParseError()) {

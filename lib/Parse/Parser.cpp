@@ -447,12 +447,26 @@ const Token &Parser::peekToken() {
   return L->peekNextToken();
 }
 
+void Parser::recordDeclInterfaceToken(StringRef token) {
+  assert(!token.empty());
+  if (StructureMarkers.empty())
+    return;
+  auto &D = StructureMarkers.back();
+  if (D.Kind == StructureMarkerKind::Declaration) {
+    D.DeclInterfaceHash.update(token);
+    // Add null byte to separate tokens.
+    uint8_t a[1] = {0};
+    D.DeclInterfaceHash.update(a);
+  }
+}
+
 SourceLoc Parser::consumeTokenWithoutFeedingReceiver() {
   SourceLoc Loc = Tok.getLoc();
   assert(Tok.isNot(tok::eof) && "Lexing past eof!");
 
   if (IsParsingInterfaceTokens && !Tok.getText().empty()) {
     SF.recordInterfaceToken(Tok.getText());
+    recordDeclInterfaceToken(Tok.getText());
   }
   L->lex(Tok);
   PreviousLoc = Loc;

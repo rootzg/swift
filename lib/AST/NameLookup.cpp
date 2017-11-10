@@ -1033,6 +1033,19 @@ public:
     }
   }
 
+  /// \brief Remove an entry from the lookup map for a given name if it
+  /// is empty.
+  void removeEmptyEntry(DeclName name) {
+    auto f = Lookup.find(name);
+    if (f != Lookup.end() && f->second.size() == 0)
+      Lookup.erase(f);
+    if (!name.isSimpleName()) {
+      f = Lookup.find(name.getBaseName());
+      if (f != Lookup.end() && f->second.size() == 0)
+        Lookup.erase(f);
+    }
+  }
+
   // \brief Mark all Decls in this table as not-resident in a table, drop
   // references to them. Should only be called when this was not fully-populated
   // from an IterableDeclContext.
@@ -1396,6 +1409,7 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
     auto &Table = *LookupTable.getPointer();
     if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                   name, this)) {
+      LookupTable.getPointer()->removeEmptyEntry(name);
       useNamedLazyMemberLoading = false;
     } else {
       if (!ignoreNewExtensions) {
@@ -1403,6 +1417,7 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
           if (E->wasDeserialized()) {
             if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                           name, E)) {
+              LookupTable.getPointer()->removeEmptyEntry(name);
               useNamedLazyMemberLoading = false;
               break;
             }

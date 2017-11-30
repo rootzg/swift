@@ -3271,6 +3271,28 @@ void ClangImporter::Implementation::lookupAllObjCMembers(
   }
 }
 
+bool
+ClangImporter::Implementation::canLoadNamedMembers(const IterableDeclContext *IDC,
+                                                   DeclName N,
+                                                   uint64_t contextData) {
+  auto *D = IDC->getDecl();
+  auto *CD = D->getClangDecl();
+  assert(CD && "canLoadNamedMembers on a Decl without a clangDecl");
+
+  // FIXME: The legacy of mirroring protocol members rears its ugly head,
+  // and as a result we have to bail on any @interface or @category that
+  // has a declared protocol conformance.
+  if (auto *ID = dyn_cast<clang::ObjCInterfaceDecl>(CD)) {
+    if (ID->protocol_begin() != ID->protocol_end())
+      return false;
+  }
+  if (auto *CCD = dyn_cast<clang::ObjCCategoryDecl>(CD)) {
+    if (CCD->protocol_begin() != CCD->protocol_end())
+      return false;
+  }
+  return isa<clang::ObjCContainerDecl>(CD);
+}
+
 Optional<TinyPtrVector<ValueDecl *>>
 ClangImporter::Implementation::loadNamedMembers(
     const IterableDeclContext *IDC, DeclName N, uint64_t contextData) {
@@ -3279,20 +3301,6 @@ ClangImporter::Implementation::loadNamedMembers(
   auto *DC = cast<DeclContext>(D);
   auto *CD = D->getClangDecl();
   assert(CD && "loadNamedMembers on a Decl without a clangDecl");
-
-
-  // FIXME: The legacy of mirroring protocol members rears its ugly head,
-  // and as a result we have to bail on any @interface or @category that
-  // has a declared protocol conformance.
-  if (auto *ID = dyn_cast<clang::ObjCInterfaceDecl>(CD)) {
-    if (ID->protocol_begin() != ID->protocol_end())
-      return None;
-  }
-  if (auto *CCD = dyn_cast<clang::ObjCCategoryDecl>(CD)) {
-    if (CCD->protocol_begin() != CCD->protocol_end())
-      return None;
-  }
-
 
   // There are 3 cases:
   //
@@ -3317,31 +3325,33 @@ ClangImporter::Implementation::loadNamedMembers(
 
   clang::ASTContext &clangCtx = getClangASTContext();
 
+  assert(isa<clang::ObjCContainerDecl>(CD));
+
   TinyPtrVector<ValueDecl *> Members;
-  if (auto *CCD = dyn_cast<clang::ObjCContainerDecl>(CD)) {
-    for (auto entry : table->lookup(SerializedSwiftName(N.getBaseName()), CCD)) {
-      if (!entry.is<clang::NamedDecl *>()) continue;
-      auto member = entry.get<clang::NamedDecl *>();
-      if (!isVisibleClangEntry(clangCtx, member)) continue;
-      SmallVector<Decl*, 4> tmp;
-      insertMembersAndAlternates(member, tmp);
-      for (auto *TD : tmp) {
-        if (auto *V = dyn_cast<ValueDecl>(TD)) {
-          // Skip ValueDecls if they import into different DeclContexts
-          // or under different names than the one we asked about.
-          if (V->getDeclContext() == DC &&
-              V->getFullName().matchesRef(N)) {
-            Members.push_back(V);
-          }
+  auto *Nominal = DC->getAsNominalTypeOrNominalTypeExtensionContext();
+  auto ClangContext = getEffectiveClangContext(Nominal);
+  for (auto entry : table->lookup(SerializedSwiftName(N.getBaseName()),
+                                  ClangContext)) {
+    if (!entry.is<clang::NamedDecl *>()) continue;
+    auto member = entry.get<clang::NamedDecl *>();
+    if (!isVisibleClangEntry(clangCtx, member)) continue;
+    SmallVector<Decl*, 4> tmp;
+    insertMembersAndAlternates(member, tmp);
+    for (auto *TD : tmp) {
+      if (auto *V = dyn_cast<ValueDecl>(TD)) {
+        // Skip ValueDecls if they import into different DeclContexts
+        // or under different names than the one we asked about.
+        auto *NDC = V->getDeclContext()->
+          getAsNominalTypeOrNominalTypeExtensionContext();
+        if (NDC == Nominal &&
+            V->getFullName().matchesRef(N)) {
+          Members.push_back(V);
         }
       }
     }
-    return Members;
   }
-
-  return None;
+  return Members;
 }
-
 
 EffectiveClangContext ClangImporter::Implementation::getEffectiveClangContext(
     const NominalTypeDecl *nominal) {

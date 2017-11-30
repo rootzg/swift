@@ -1148,6 +1148,10 @@ public:
   virtual void
   loadAllMembers(Decl *D, uint64_t unused) override;
 
+  virtual bool
+  canLoadNamedMembers(const IterableDeclContext *IDC, DeclName N,
+                      uint64_t contextData) override;
+
   virtual Optional<TinyPtrVector<ValueDecl *>>
   loadNamedMembers(const IterableDeclContext *IDC, DeclName N,
                    uint64_t contextData) override;

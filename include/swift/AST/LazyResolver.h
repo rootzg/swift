@@ -225,6 +225,12 @@ public:
   virtual void
   loadAllMembers(Decl *D, uint64_t contextData) = 0;
 
+  /// Check a given \p IDC to see if it supports named lazy loading
+  /// of a given name.
+  virtual bool
+  canLoadNamedMembers(const IterableDeclContext *IDC, DeclName N,
+                      uint64_t contextData) = 0;
+
   /// Populates a vector with all members of \p IDC that have DeclName
   /// matching \p N.
   ///

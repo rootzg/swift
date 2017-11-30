@@ -1311,6 +1311,7 @@ populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
   DEBUG(llvm::dbgs() << "    populateLookupTableEntryFromLazyIDCLoader(" << name << ")\n");
   LookupTable.addEmptyEntry(name);
   if (auto res = ci->loader->loadNamedMembers(IDC, name, ci->memberData)) {
+    LookupTable.removeEmptyEntry(name);
     if (auto s = ctx.Stats) {
       ++s->getFrontendCounters().NamedLazyMemberLoadSuccessCount;
     }
@@ -1320,6 +1321,7 @@ populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
     }
     return false;
   } else {
+    LookupTable.removeEmptyEntry(name);
     if (auto s = ctx.Stats) {
       ++s->getFrontendCounters().NamedLazyMemberLoadFailureCount;
     }
@@ -1443,7 +1445,6 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
     DEBUG(llvm::dbgs() << "    attempting named lazy lookup ...\n");
     if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                   name, this)) {
-      LookupTable.getPointer()->removeEmptyEntry(name);
       useNamedLazyMemberLoading = false;
     } else {
       if (!ignoreNewExtensions) {
@@ -1452,7 +1453,6 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
             DEBUG(llvm::dbgs() << "    considering deserialized extension ...\n");
             if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                           name, E)) {
-              LookupTable.getPointer()->removeEmptyEntry(name);
               useNamedLazyMemberLoading = false;
               break;
             }

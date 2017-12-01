@@ -1238,10 +1238,16 @@ void ExtensionDecl::addedMember(Decl *member) {
 // In all lookup routines, the 'ignoreNewExtensions' flag means that
 // lookup should only use the set of extensions already observed.
 
+static int indent = 0;
+static std::string indentstr() {
+  return std::string(indent, ' ');
+}
+
 void NominalTypeDecl::prepareLookupTable(bool ignoreNewExtensions) {
   // If we haven't allocated the lookup table yet, do so now.
   if (!LookupTable.getPointer()) {
     auto &ctx = getASTContext();
+    DEBUG(llvm::dbgs() << indentstr() << "    constructing lookup table ...\n");
     LookupTable.setPointer(new (ctx) MemberLookupTable(ctx));
   }
 
@@ -1257,6 +1263,7 @@ void NominalTypeDecl::prepareLookupTable(bool ignoreNewExtensions) {
     LookupTable.setInt(true);
 
     // Add the members of the nominal declaration to the table.
+    DEBUG(llvm::dbgs() << indentstr() << "    adding members to lookup table ...\n");
     LookupTable.getPointer()->addMembers(getMembers());
   }
 
@@ -1305,11 +1312,13 @@ populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
                                           DeclName name,
                                           IterableDeclContext *IDC) {
   if (IDC->isLoadingLazyMembers()) {
+    DEBUG(llvm::dbgs() << indentstr() << "    recursive collectNamedMembersFromLazyIDCLoader(" << name << "), returning empty\n");
     return false;
   }
   IDC->setLoadingLazyMembers(true);
   auto ci = ctx.getOrCreateLazyIterableContextData(IDC,
                                                    /*lazyLoader=*/nullptr);
+  DEBUG(llvm::dbgs() << indentstr() << "    collectNamedMembersFromLazyIDCLoader(" << name << ")\n");
   if (auto res = ci->loader->loadNamedMembers(IDC, name, ci->memberData)) {
     IDC->setLoadingLazyMembers(false);
     if (auto s = ctx.Stats) {
@@ -1317,6 +1326,7 @@ populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
     }
     for (auto d : *res) {
       LookupTable.addMember(d);
+      DEBUG(llvm::dbgs() << indentstr() << "        collecting member: " << d->getFullName() << "\n");
     }
     return false;
   } else {
@@ -1333,10 +1343,12 @@ populateLookupTableEntryFromMembers(ASTContext &ctx,
                                     MemberLookupTable &LookupTable,
                                     DeclName name,
                                     IterableDeclContext *IDC) {
+  DEBUG(llvm::dbgs() << indentstr() << "    collectNamedMembersFromMemberList(" << name << ")\n");
   for (auto m : IDC->getMembers()) {
     if (auto v = dyn_cast<ValueDecl>(m)) {
       if (v->getFullName().matchesRef(name)) {
         LookupTable.addMember(m);
+        DEBUG(llvm::dbgs() << indentstr() << "        collecting member: " << v->getFullName() << "\n");
       }
     }
   }
@@ -1346,6 +1358,7 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
                                                   DeclName name,
                                                   bool ignoreNewExtensions) {
   RecursiveSharedTimer::Guard guard;
+  indent += 4;
   ASTContext &ctx = getASTContext();
   if (auto s = ctx.Stats) {
     ++s->getFrontendCounters().NominalTypeLookupDirectCount;
@@ -1387,6 +1400,9 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
   // first try as a cache-miss that we then do a cache-fill on, and retry.
   for (int i = 0; i < 2; ++i) {
 
+    DEBUG(llvm::dbgs() << indentstr() << "    lookup pass " << i
+          << ", useNamedLazyMemberLoading=" << useNamedLazyMemberLoading << " ...\n");
+
     // First, if we're _not_ doing NamedLazyMemberLoading, we make sure we've
     // populated the IDC and brought it up to date with any extensions. This
     // will flip the hasLazyMembers() flag to false as well.
@@ -1397,14 +1413,17 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
       // can sometimes change underfoot if some other party calls getMembers
       // outside of lookup (eg. typo correction).
       if (LookupTable.getPointer() && !LookupTable.getInt()) {
+        DEBUG(llvm::dbgs() << indentstr() << "    clearing lookup table ...\n");
         LookupTable.getPointer()->clear();
       }
 
+      DEBUG(llvm::dbgs() << indentstr() << "    getting members ...\n");
       (void)getMembers();
 
       // Make sure we have the complete list of members (in this nominal and in
       // all extensions).
       if (!ignoreNewExtensions) {
+        DEBUG(llvm::dbgs() << indentstr() << "    getting extensions ...\n");
         for (auto E : getExtensions())
           (void)E->getMembers();
       }
@@ -1413,18 +1432,26 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
     // Next, in all cases, prepare the lookup table for use, possibly
     // repopulating it from the IDC if just did our initial IDC population
     // above.
+    DEBUG(llvm::dbgs() << indentstr() << "    preparing & querying lookup table ...\n");
     prepareLookupTable(ignoreNewExtensions);
 
     // Look for a declaration with this name.
     auto known = LookupTable.getPointer()->find(name);
 
     // We found something; return it.
-    if (known != LookupTable.getPointer()->end())
+    if (known != LookupTable.getPointer()->end()) {
+      DEBUG(llvm::dbgs() << indentstr() << "    found entry with " << known->second.size() << " elements ...\n");
+      DEBUG(llvm::dbgs() << indentstr() << "---\n");
+      indent -= 4;
       return known->second;
+    }
 
+    DEBUG(llvm::dbgs() << indentstr() << "    found no entry ...\n");
     // If we have no more second chances, stop now.
-    if (!useNamedLazyMemberLoading || i > 0)
+    if (!useNamedLazyMemberLoading || i > 0) {
+      DEBUG(llvm::dbgs() << indentstr() << "    out of retries, stopping ...\n");
       break;
+    }
 
     // If we get here, we had a cache-miss and _are_ using
     // NamedLazyMemberLoading. Try to populate a _single_ entry in the
@@ -1432,19 +1459,27 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
     // retry. Any failure to load here flips the useNamedLazyMemberLoading to
     // false, and we fall back to loading all members during the retry.
     auto &Table = *LookupTable.getPointer();
+    DEBUG(llvm::dbgs() << indentstr() << "    attempting named lazy lookup ...\n");
+
     if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                   name, this)) {
+      DEBUG(llvm::dbgs() << indentstr() << "    named lazy lookup failed ...\n");
       useNamedLazyMemberLoading = false;
     } else {
+      DEBUG(llvm::dbgs() << indentstr() << "    named lazy lookup succeeded ...\n");
       if (!ignoreNewExtensions) {
         for (auto E : getExtensions()) {
           if (E->wasDeserialized() || E->hasClangNode()) {
+            DEBUG(llvm::dbgs() << indentstr() << "    considering deserialized/clang extension ...\n");
             if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
                                                           name, E)) {
+              DEBUG(llvm::dbgs() << indentstr() << "    extension lazy lookup failed ...\n");
               useNamedLazyMemberLoading = false;
               break;
             }
+            DEBUG(llvm::dbgs() << indentstr() << "    extension lazy lookup succeeded ...\n");
           } else {
+            DEBUG(llvm::dbgs() << indentstr() << "    considering source extension ...\n");
             populateLookupTableEntryFromMembers(ctx, Table,
                                                 name, E);
           }
@@ -1454,6 +1489,8 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
   }
 
   // None of our attempts found anything.
+  DEBUG(llvm::dbgs() << indentstr() << "---\n");
+  indent -= 4;
   return { };
 }
 

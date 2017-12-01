@@ -1792,6 +1792,15 @@ void ModuleFile::loadObjCMethods(
   }
 }
 
+bool
+ModuleFile::canLoadNamedMembers(const IterableDeclContext *IDC, DeclName N,
+                                uint64_t contextData) {
+  return (bool)DeclMemberNames;
+}
+
+void ModuleFile::startNamedMemberLoading() {}
+void ModuleFile::finishNamedMemberLoading() {}
+
 Optional<TinyPtrVector<ValueDecl *>>
 ModuleFile::loadNamedMembers(const IterableDeclContext *IDC, DeclName N,
                              uint64_t contextData) {

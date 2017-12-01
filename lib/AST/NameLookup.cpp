@@ -1276,6 +1276,30 @@ void NominalTypeDecl::makeMemberVisible(ValueDecl *member) {
 }
 
 static bool
+nominalAndExtensionsSupportNamedLazyMemberLoading(ASTContext &ctx,
+                                                  DeclName name,
+                                                  NominalTypeDecl *nominal,
+                                                  bool ignoreNewExtensions) {
+  if (!nominal->hasLazyMembers())
+    return false;
+  auto ci = ctx.getOrCreateLazyIterableContextData(nominal, nullptr);
+  if (!ci->loader->canLoadNamedMembers(nominal, name, ci->memberData))
+    return false;
+  if (!ignoreNewExtensions) {
+    for (auto E : nominal->getExtensions()) {
+      if (!nominal->hasLazyMembers())
+        return false;
+      if (E->wasDeserialized() || E->hasClangNode()) {
+        auto eci = ctx.getOrCreateLazyIterableContextData(E, nullptr);
+        if (!eci->loader->canLoadNamedMembers(E, name, eci->memberData))
+          return false;
+      }
+    }
+  }
+  return true;
+}
+
+static bool
 populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
                                           MemberLookupTable &LookupTable,
                                           DeclName name,
@@ -1329,11 +1353,6 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
                 .NominalTypeDecl__lookupDirect.getGuard();
   }
 
-  DEBUG(llvm::dbgs() << getNameStr() << ".lookupDirect(" << name << ")"
-        << ", lookupTable.getInt()=" << LookupTable.getInt()
-        << ", hasLazyMembers()=" << hasLazyMembers()
-        << "\n");
-
   // We only use NamedLazyMemberLoading when a user opts-in and we have
   // not yet loaded all the members into the IDC list in the first place.
   bool useNamedLazyMemberLoading = (ctx.LangOpts.NamedLazyMemberLoading &&
@@ -1345,6 +1364,24 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
   // turn it off for them entirely.
   if (name.getBaseName() == ctx.Id_init)
     useNamedLazyMemberLoading = false;
+
+  // FIXME: At present there are also backend-specific conditions (eg. missing
+  // hashtables or mirrored protocol entries) that cause us to bail out of using
+  // named lookup; these conditions are best evaluated up front before we get
+  // part way through doing named lookup on a name and realize we have to throw
+  // out several members and start again.
+  if (useNamedLazyMemberLoading &&
+      !nominalAndExtensionsSupportNamedLazyMemberLoading(ctx, name, this,
+                                                         ignoreNewExtensions))
+    useNamedLazyMemberLoading = false;
+
+  DEBUG(llvm::dbgs() << indentstr() << "+++\n");
+  DEBUG(llvm::dbgs() << indentstr() << getNameStr() << ".lookupDirect(" << name
+        << ", ignoreNewExtensions=" << ignoreNewExtensions << ")"
+        << ", lookupTable.getInt()=" << LookupTable.getInt()
+        << ", hasLazyMembers()=" << hasLazyMembers()
+        << ", useNamedLazyMemberLoading=" << useNamedLazyMemberLoading
+        << "\n");
 
   // We check the LookupTable at most twice, possibly treating a miss in the
   // first try as a cache-miss that we then do a cache-fill on, and retry.

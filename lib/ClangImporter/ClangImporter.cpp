@@ -3271,6 +3271,28 @@ void ClangImporter::Implementation::lookupAllObjCMembers(
   }
 }
 
+bool
+ClangImporter::Implementation::canLoadNamedMembers(const IterableDeclContext *IDC,
+                                                   DeclName N,
+                                                   uint64_t contextData) {
+  return true;
+
+  //auto *D = IDC->getDecl();
+  //auto *CD = D->getClangDecl();
+  //assert(CD && "canLoadNamedMembers on a Decl without a clangDecl");
+
+  //return isa<clang::ObjCContainerDecl>(CD);
+}
+
+void ClangImporter::Implementation::startNamedMemberLoading() {
+  startedImportingEntity();
+}
+void ClangImporter::Implementation::finishNamedMemberLoading() {
+  finishedImportingEntity();
+}
+
+
+
 Optional<TinyPtrVector<ValueDecl *>>
 ClangImporter::Implementation::loadNamedMembers(
     const IterableDeclContext *IDC, DeclName N, uint64_t contextData) {
@@ -3345,7 +3367,6 @@ ClangImporter::Implementation::loadNamedMembers(
   }
   return Members;
 }
-
 
 EffectiveClangContext ClangImporter::Implementation::getEffectiveClangContext(
     const NominalTypeDecl *nominal) {

@@ -3293,6 +3293,13 @@ ClangImporter::Implementation::canLoadNamedMembers(const IterableDeclContext *ID
   return isa<clang::ObjCContainerDecl>(CD);
 }
 
+void ClangImporter::Implementation::startNamedMemberLoading() {
+  startedImportingEntity();
+}
+void ClangImporter::Implementation::finishNamedMemberLoading() {
+  finishedImportingEntity();
+}
+
 Optional<TinyPtrVector<ValueDecl *>>
 ClangImporter::Implementation::loadNamedMembers(
     const IterableDeclContext *IDC, DeclName N, uint64_t contextData) {
@@ -3300,6 +3307,7 @@ ClangImporter::Implementation::loadNamedMembers(
   auto *D = IDC->getDecl();
   auto *DC = cast<DeclContext>(D);
   auto *CD = D->getClangDecl();
+  auto *CDC = cast<clang::DeclContext>(CD);
   assert(CD && "loadNamedMembers on a Decl without a clangDecl");
 
   // There are 3 cases:
@@ -3335,15 +3343,25 @@ ClangImporter::Implementation::loadNamedMembers(
     if (!entry.is<clang::NamedDecl *>()) continue;
     auto member = entry.get<clang::NamedDecl *>();
     if (!isVisibleClangEntry(clangCtx, member)) continue;
+    if (member->getDeclContext() != CDC) continue;
+    //if (member != member->getCanonicalDecl()) continue;
     SmallVector<Decl*, 4> tmp;
     insertMembersAndAlternates(member, tmp);
     for (auto *TD : tmp) {
       if (auto *V = dyn_cast<ValueDecl>(TD)) {
         // Skip ValueDecls if they import into different DeclContexts
         // or under different names than the one we asked about.
+        /*
         auto *NDC = V->getDeclContext()->
           getAsNominalTypeOrNominalTypeExtensionContext();
-        if (NDC == Nominal &&
+        if (isa<ExtensionDecl>(DC) &&
+            NDC == Nominal &&
+            V->getDeclContext() != DC) {
+          __builtin_debugtrap();
+        }
+        */
+        if (//NDC == Nominal &&
+            //V->getDeclContext() == DC &&
             V->getFullName().matchesRef(N)) {
           Members.push_back(V);
         }

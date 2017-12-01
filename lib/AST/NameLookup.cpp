@@ -1309,11 +1309,15 @@ nominalAndExtensionsSupportNamedLazyMemberLoading(ASTContext &ctx,
                                                   DeclName name,
                                                   NominalTypeDecl *nominal,
                                                   bool ignoreNewExtensions) {
+  if (!nominal->hasLazyMembers())
+    return false;
   auto ci = ctx.getOrCreateLazyIterableContextData(nominal, nullptr);
   if (!ci->loader->canLoadNamedMembers(nominal, name, ci->memberData))
     return false;
   if (!ignoreNewExtensions) {
     for (auto E : nominal->getExtensions()) {
+      if (!nominal->hasLazyMembers())
+        return false;
       if (E->wasDeserialized() || E->hasClangNode()) {
         auto eci = ctx.getOrCreateLazyIterableContextData(E, nullptr);
         if (!eci->loader->canLoadNamedMembers(E, name, eci->memberData))
@@ -1324,30 +1328,71 @@ nominalAndExtensionsSupportNamedLazyMemberLoading(ASTContext &ctx,
   return true;
 }
 
+static void
+startAllNamedMemberLoaders(ASTContext &ctx,
+                           NominalTypeDecl *nominal,
+                           bool ignoreNewExtensions) {
+  if (nominal->hasLazyMembers()) {
+      auto ci = ctx.getOrCreateLazyIterableContextData(nominal, nullptr);
+      ci->loader->startNamedMemberLoading();
+  }
+  if (!ignoreNewExtensions) {
+    for (auto E : nominal->getExtensions()) {
+      if (E->hasLazyMembers()) {
+        auto eci = ctx.getOrCreateLazyIterableContextData(E, nullptr);
+        eci->loader->startNamedMemberLoading();
+      }
+    }
+  }
+}
+
+static void
+finishAllNamedMemberLoaders(ASTContext &ctx,
+                            NominalTypeDecl *nominal,
+                            bool ignoreNewExtensions) {
+  if (nominal->hasLazyMembers()) {
+    auto ci = ctx.getOrCreateLazyIterableContextData(nominal, nullptr);
+    ci->loader->finishNamedMemberLoading();
+  }
+  if (!ignoreNewExtensions) {
+    for (auto E : nominal->getExtensions()) {
+      if (E->hasLazyMembers()) {
+        auto eci = ctx.getOrCreateLazyIterableContextData(E, nullptr);
+        eci->loader->finishNamedMemberLoading();
+      }
+    }
+  }
+}
+
 static bool
-populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
-                                          MemberLookupTable &LookupTable,
-                                          DeclName name,
-                                          IterableDeclContext *IDC) {
+collectNamedMembersFromLazyIDCLoader(ASTContext &ctx,
+                                     TinyPtrVector<ValueDecl *> &members,
+                                     DeclName name,
+                                     IterableDeclContext *IDC) {
+  if (IDC->isLoadingLazyMembers()) {
+    DEBUG(llvm::dbgs() << indentstr() << "    recursive collectNamedMembersFromLazyIDCLoader(" << name << "), returning empty\n");
+    return false;
+  }
+  IDC->setLoadingLazyMembers(true);
   auto ci = ctx.getOrCreateLazyIterableContextData(IDC,
                                                    /*lazyLoader=*/nullptr);
-  // Populate LookupTable with an empty vector before we call into our loader,
-  // so that any reentry of this routine will find the set-so-far, and not
-  // fall into infinite recursion.
-  DEBUG(llvm::dbgs() << indentstr() << "    populateLookupTableEntryFromLazyIDCLoader(" << name << ")\n");
-  LookupTable.addEmptyEntry(name);
+  DEBUG(llvm::dbgs() << indentstr() << "    collectNamedMembersFromLazyIDCLoader(" << name << ")\n");
   if (auto res = ci->loader->loadNamedMembers(IDC, name, ci->memberData)) {
-    LookupTable.removeEmptyEntry(name);
+    IDC->setLoadingLazyMembers(false);
     if (auto s = ctx.Stats) {
       ++s->getFrontendCounters().NamedLazyMemberLoadSuccessCount;
     }
     for (auto d : *res) {
-      DEBUG(llvm::dbgs() << indentstr() << "        LookupTable.addMember(" << d->getFullName() << ")\n");
-      LookupTable.addMember(d);
+      //if (d->getFullName().isSimpleName("readwriteChange")) {
+      //  __builtin_debugtrap();
+      //}
+      DEBUG(llvm::dbgs() << indentstr() << "        collecting member: " << d->getFullName() << " ";
+            { auto loc = d->getLoc(); if (loc.isValid()) { loc.print(llvm::dbgs(), ctx.SourceMgr); } llvm::dbgs() << '\n'; });
+      members.push_back(d);
     }
     return false;
   } else {
-    LookupTable.removeEmptyEntry(name);
+    IDC->setLoadingLazyMembers(false);
     if (auto s = ctx.Stats) {
       ++s->getFrontendCounters().NamedLazyMemberLoadFailureCount;
     }
@@ -1356,16 +1401,17 @@ populateLookupTableEntryFromLazyIDCLoader(ASTContext &ctx,
 }
 
 static void
-populateLookupTableEntryFromMembers(ASTContext &ctx,
-                                    MemberLookupTable &LookupTable,
-                                    DeclName name,
-                                    IterableDeclContext *IDC) {
-  DEBUG(llvm::dbgs() << indentstr() << "    populateLookupTableEntryFromMembers(" << name << ")\n");
+collectNamedMembersFromIDCMemberList(ASTContext &ctx,
+                                     TinyPtrVector<ValueDecl *> &members,
+                                     DeclName name,
+                                     IterableDeclContext *IDC) {
+  DEBUG(llvm::dbgs() << indentstr() << "    collectNamedMembersFromMemberList(" << name << ")\n");
   for (auto m : IDC->getMembers()) {
     if (auto v = dyn_cast<ValueDecl>(m)) {
       if (v->getFullName().matchesRef(name)) {
-        DEBUG(llvm::dbgs() << indentstr() << "        LookupTable.addMember(" << v->getFullName() << ")\n");
-        LookupTable.addMember(v);
+        DEBUG(llvm::dbgs() << indentstr() << "        collecting member: " << v->getFullName() << " ";
+              { auto loc = v->getLoc(); if (loc.isValid()) { loc.print(llvm::dbgs(), ctx.SourceMgr); } llvm::dbgs() << '\n'; });
+        members.push_back(v);
       }
     }
   }
@@ -1476,32 +1522,53 @@ TinyPtrVector<ValueDecl *> NominalTypeDecl::lookupDirect(
     // retry. Any failure to load here flips the useNamedLazyMemberLoading to
     // false, and we fall back to loading all members during the retry.
     auto &Table = *LookupTable.getPointer();
+    TinyPtrVector<ValueDecl *> members;
     DEBUG(llvm::dbgs() << indentstr() << "    attempting named lazy lookup ...\n");
-    if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
-                                                  name, this)) {
+    // Populate LookupTable with an empty vector before we call into our loader,
+    // so that any reentry of this routine will find the set-so-far, and not
+    // fall into infinite recursion.
+    //Table.addEmptyEntry(name);
+    //startAllNamedMemberLoaders(ctx, this, ignoreNewExtensions);
+
+    if (collectNamedMembersFromLazyIDCLoader(ctx, members, name, this)) {
       DEBUG(llvm::dbgs() << indentstr() << "    named lazy lookup failed ...\n");
       useNamedLazyMemberLoading = false;
     } else {
       DEBUG(llvm::dbgs() << indentstr() << "    named lazy lookup succeeded ...\n");
+      for (auto d : members) {
+        DEBUG(llvm::dbgs() << indentstr() << "        LookupTable.addMember(" << d->getFullName() << ")\n");
+        Table.addMember(d);
+      }
+      members.clear();
       if (!ignoreNewExtensions) {
         for (auto E : getExtensions()) {
           if (E->wasDeserialized() || E->hasClangNode()) {
             DEBUG(llvm::dbgs() << indentstr() << "    considering deserialized/clang extension ...\n");
-            if (populateLookupTableEntryFromLazyIDCLoader(ctx, Table,
-                                                          name, E)) {
+            if (collectNamedMembersFromLazyIDCLoader(ctx, members, name, E)) {
               DEBUG(llvm::dbgs() << indentstr() << "    extension lazy lookup failed ...\n");
               useNamedLazyMemberLoading = false;
               break;
             }
             DEBUG(llvm::dbgs() << indentstr() << "    extension lazy lookup succeeded ...\n");
+            for (auto d : members) {
+              DEBUG(llvm::dbgs() << indentstr() << "        LookupTable.addMember(" << d->getFullName() << ")\n");
+              Table.addMember(d);
+            }
+            members.clear();
           } else {
             DEBUG(llvm::dbgs() << indentstr() << "    considering source extension ...\n");
-            populateLookupTableEntryFromMembers(ctx, Table,
-                                                name, E);
+            collectNamedMembersFromIDCMemberList(ctx, members, name, E);
+            for (auto d : members) {
+              DEBUG(llvm::dbgs() << indentstr() << "        LookupTable.addMember(" << d->getFullName() << ")\n");
+              Table.addMember(d);
+            }
+            members.clear();
           }
         }
       }
     }
+    //finishAllNamedMemberLoaders(ctx, this, ignoreNewExtensions);
+    //Table.removeEmptyEntry(name);
   }
 
   // None of our attempts found anything.

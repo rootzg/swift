@@ -231,6 +231,9 @@ public:
   canLoadNamedMembers(const IterableDeclContext *IDC, DeclName N,
                       uint64_t contextData) = 0;
 
+  virtual void startNamedMemberLoading() = 0;
+  virtual void finishNamedMemberLoading() = 0;
+
   /// Populates a vector with all members of \p IDC that have DeclName
   /// matching \p N.
   ///

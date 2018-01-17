@@ -27,6 +27,7 @@
 #include "swift/Driver/ToolChain.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/TinyPtrVector.h"
 #include "llvm/Option/Arg.h"
@@ -133,6 +134,17 @@ namespace driver {
     /// don't need to run.
     CommandSet ScheduledCommands;
 
+    /// A temporary buffer to hold commands that were scheduled but haven't been
+    /// added to the Task Queue yet, because we might try batching them together
+    /// first.
+    CommandSet PendingExecution;
+
+    /// Set of synthetic BatchJobs that serve to cluster subsets of jobs waiting
+    /// in PendingExecution. Also used to identify (then unpack) BatchJobs back
+    /// to their underlying non-Batch Jobs, when running a callback from
+    /// TaskQueue.
+    CommandSet BatchJobs;
+
     /// All jobs which have finished execution or which have been determined
     /// that they don't need to run.
     CommandSet FinishedCommands;
@@ -219,6 +231,17 @@ namespace driver {
         return;
       }
 
+      // Adding to scheduled means we've committed to its completion (not
+      // distinguished from skipping). We never remove it once inserted.
+      ScheduledCommands.insert(Cmd);
+
+      // Adding to pending means it should be in the next round of additions to
+      // the task queue (either batched or singularly); we remove Jobs from
+      // PendingExecution once we hand them over to the TaskQueue.
+      PendingExecution.insert(Cmd);
+    }
+
+    void addPendingJobToTaskQueue(const Job *Cmd) {
       // FIXME: Failing here should not take down the whole process.
       bool success = writeFilelistsIfNecessary(Cmd, Comp.Diags);
       assert(success && "failed to write filelist");
@@ -226,7 +249,6 @@ namespace driver {
 
       assert(Cmd->getExtraEnvironment().empty() &&
              "not implemented for compilations with multiple jobs");
-      ScheduledCommands.insert(Cmd);
       if (Comp.ShowJobLifecycle)
         llvm::outs() << "Added to TaskQueue: " << LogJob(Cmd) << "\n";
       TQ->addTask(Cmd->getExecutable(), Cmd->getArguments(), llvm::None,
@@ -389,6 +411,23 @@ namespace driver {
         DriverTimers[FinishedCmd]->stopTimer();
       }
 
+      if (BatchJobs.count(FinishedCmd) != 0) {
+        if (Comp.ShowJobLifecycle)
+          llvm::outs() << "Batch job finished: "
+                       << LogJob(FinishedCmd) << "\n";
+        auto const *B = static_cast<const BatchJob *>(FinishedCmd);
+        auto res = TaskFinishedResponse::ContinueExecution;
+        for (const Job *J : B->getCombinedJobs()) {
+          if (Comp.ShowJobLifecycle)
+            llvm::outs() << "  ==> Unpacked batch constituent finished: "
+                         << LogJob(J) << "\n";
+          auto r = taskFinished(Pid, ReturnCode, Output, Errors, (void *)J);
+          if (r != TaskFinishedResponse::ContinueExecution)
+            res = r;
+        }
+        return res;
+      }
+
       if (Comp.Level == OutputLevel::Parseable) {
         // Parseable output was requested.
         parseable_output::emitFinishedMessage(llvm::errs(), *FinishedCmd, Pid,
@@ -449,6 +488,24 @@ namespace driver {
 
       if (Comp.ShowDriverTimeCompilation) {
         DriverTimers[SignalledCmd]->stopTimer();
+      }
+
+      if (BatchJobs.count(SignalledCmd) != 0) {
+        if (Comp.ShowJobLifecycle)
+          llvm::outs() << "Batch job signalled: "
+                       << LogJob(SignalledCmd) << "\n";
+        auto const *B = static_cast<const BatchJob *>(SignalledCmd);
+        auto res = TaskFinishedResponse::ContinueExecution;
+        for (const Job *J : B->getCombinedJobs()) {
+          if (Comp.ShowJobLifecycle)
+            llvm::outs() << "  ==> Unpacked batch constituent signalled: "
+                         << LogJob(J) << "\n";
+          auto r = taskSignalled(Pid, ErrorMsg, Output, Errors,
+                                 (void *)J, Signal);
+          if (r != TaskFinishedResponse::ContinueExecution)
+            res = r;
+        }
+        return res;
       }
 
       if (Comp.Level == OutputLevel::Parseable) {
@@ -592,6 +649,76 @@ namespace driver {
       }
     }
 
+    void formBatchJobsAndAddPendingJobsToTaskQueue() {
+      auto const &TC = Comp.getToolChain();
+      CommandSet Batches;
+      CommandSet NotBatched;
+
+      llvm::SetVector<const Job *> CurrentBatch;
+      const Job *CurrentBatchElement = nullptr;
+      size_t Batchable = 0;
+      for (const Job *Cmd : PendingExecution) {
+        if (TC.jobIsBatchable(Cmd)) {
+          ++Batchable;
+        }
+      }
+
+      if (Comp.ShowJobLifecycle)
+        llvm::outs() << "Found " << Batchable << " batchable jobs\n";
+
+      size_t TargetBatchSize = Batchable / Comp.NumberOfParallelCommands;
+      for (const Job *Cmd : PendingExecution) {
+        if (TC.jobIsBatchable(Cmd)) {
+          if (CurrentBatchElement == nullptr) {
+            if (Comp.ShowJobLifecycle)
+              llvm::outs() << "Starting batch: " << LogJob(Cmd) << "\n";
+            CurrentBatchElement = Cmd;
+            CurrentBatch.insert(Cmd);
+          } else if (TC.jobsAreBatchCombinable(CurrentBatchElement, Cmd)) {
+            if (Comp.ShowJobLifecycle)
+              llvm::outs() << "Adding to batch: " << LogJob(Cmd) << "\n";
+            CurrentBatch.insert(Cmd);
+          } else {
+            if (Comp.ShowJobLifecycle)
+              llvm::outs() << "Not batching: " << LogJob(Cmd) << "\n";
+            NotBatched.insert(Cmd);
+          }
+          if (CurrentBatch.size() >= TargetBatchSize) {
+            if (Comp.ShowJobLifecycle)
+              llvm::outs() << "Forming batch job from "
+                           << CurrentBatch.size() << " constituents\n";
+            Batches.insert(
+              Comp.addJob(
+                TC.constructBatchJob(CurrentBatch.getArrayRef(), Comp)));
+            CurrentBatch.clear();
+          }
+        } else {
+          NotBatched.insert(Cmd);
+        }
+      }
+      if (!CurrentBatch.empty()) {
+        if (Comp.ShowJobLifecycle)
+          llvm::outs() << "Forming residual batch job from "
+                       << CurrentBatch.size() << " constituents\n";
+        Batches.insert(
+          Comp.addJob(
+            TC.constructBatchJob(CurrentBatch.getArrayRef(), Comp)));
+        CurrentBatch.clear();
+      }
+      for (const Job *Cmd : Batches) {
+        BatchJobs.insert(Cmd);
+        if (Comp.ShowJobLifecycle)
+          llvm::outs() << "Scheduling batch job: " << LogJob(Cmd) << "\n";
+        addPendingJobToTaskQueue(Cmd);
+      }
+      for (const Job *Cmd : NotBatched) {
+        if (Comp.ShowJobLifecycle)
+          llvm::outs() << "Scheduling non-batch job: " << LogJob(Cmd) << "\n";
+        addPendingJobToTaskQueue(Cmd);
+      }
+      PendingExecution.clear();
+    }
+
     void runTaskQueueToCompletion() {
       do {
         using namespace std::placeholders;
@@ -617,6 +744,8 @@ namespace driver {
         DeferredCommands.clear();
 
         // ...which may allow us to go on and do later tasks.
+        formBatchJobsAndAddPendingJobsToTaskQueue();
+
       } while (Result == 0 && TQ->hasRemainingTasks());
     }
 
@@ -844,6 +973,7 @@ int Compilation::performJobsImpl(bool &abnormalExit) {
 
   State.scheduleInitialJobs();
   State.scheduleAdditionalJobs();
+  State.formBatchJobsAndAddPendingJobsToTaskQueue();
   State.runTaskQueueToCompletion();
   State.checkUnfinishedJobs();
 

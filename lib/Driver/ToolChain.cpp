@@ -21,6 +21,7 @@
 #include "swift/Driver/Compilation.h"
 #include "swift/Driver/Driver.h"
 #include "swift/Driver/Job.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
@@ -148,6 +149,149 @@ ToolChain::findProgramRelativeToSwiftImpl(StringRef executableName) const {
 
 types::ID ToolChain::lookupTypeForExtension(StringRef Ext) const {
   return types::lookupTypeForExtension(Ext);
+}
+
+// Return a _single_ TY_Swift InputAction, if one exists;
+// if 0 or >1 such inputs exist, return nullptr.
+static const InputAction*
+findSingleSwiftInput(const CompileJobAction *CJA) {
+  auto Inputs = CJA->getInputs();
+  const InputAction *IA = nullptr;
+  for (auto const *I : Inputs) {
+    if (auto const *S = dyn_cast<InputAction>(I)) {
+      if (S->getType() == types::TY_Swift) {
+        if (IA == nullptr) {
+          IA = S;
+        } else {
+          // Already found one, two is too many.
+          return nullptr;
+        }
+      }
+    }
+  }
+  return IA;
+}
+
+bool
+ToolChain::jobIsBatchable(const Job *A) const {
+  // FIXME: There might be a tighter criterion to use here?
+  auto const *CJActA = dyn_cast<const CompileJobAction>(&A->getSource());
+  if (!CJActA)
+    return false;
+  return findSingleSwiftInput(CJActA) != nullptr;
+}
+
+bool
+ToolChain::jobsAreBatchCombinable(const Job *A, const Job *B) const {
+
+  // Check that we have two CompileJobActions.
+  auto const *CJActA = dyn_cast<const CompileJobAction>(&A->getSource());
+  auto const *CJActB = dyn_cast<const CompileJobAction>(&B->getSource());
+  if (!CJActA || !CJActB)
+    return false;
+
+  // Check that we have two "single Swift input" jobs (possibly with other
+  // auxiliary inputs such as PCHs).
+  auto const *InActA = findSingleSwiftInput(CJActA);
+  auto const *InActB = findSingleSwiftInput(CJActB);
+  if (!InActA || !InActB)
+    return false;
+
+  // Check Jobs have same executable.
+  if (strcmp(A->getExecutable(), B->getExecutable()) != 0)
+    return false;
+
+  // Check Jobs are making the same kind of output.
+  if (A->getOutput().getPrimaryOutputType() !=
+      B->getOutput().getPrimaryOutputType())
+    return false;
+
+  // Check Jobs have same environment.
+  auto AEnv = A->getExtraEnvironment();
+  auto BEnv = B->getExtraEnvironment();
+  if (AEnv.size() != BEnv.size())
+    return false;
+  for (size_t i = 0; i < AEnv.size(); ++i) {
+    if (strcmp(AEnv[i].first, BEnv[i].first) != 0)
+      return false;
+    if (strcmp(AEnv[i].second, BEnv[i].second) != 0)
+      return false;
+  }
+
+  return true;
+}
+
+std::unique_ptr<Job>
+ToolChain::constructBatchJob(ArrayRef<const Job *> jobs,
+                             Compilation &C) const
+{
+  // Here we construct an aggregate of a set of jobs; a precondition of
+  // this is that the jobs are all pairwise combinable.
+#ifndef NDEBUG
+  for (auto *A : jobs) {
+    for (auto *B : jobs) {
+      assert(jobsAreBatchCombinable(A, B));
+    }
+  }
+#endif
+  // As much as possible, we treat the construction of the batch job the
+  // same as we did the constituent jobs, building an aggregate
+  // CompileJobAction and calling back into constructInvocation as before,
+  // with a CompileJobAction and JobContext that differ only slightly.
+
+  if (jobs.size() == 0)
+    return nullptr;
+
+  // Synthetic OutputInfo is a slightly-modified version of the initial
+  // compilation's OI.
+  OutputInfo OI = C.getOutputInfo();
+  OI.CompilerMode = OutputInfo::Mode::BatchModeCompile;
+
+  // Synthetic CommandOutput is a _merge_ of all the CommandOutputs we were
+  // passed. Synthetic executablePath is just the first one (which is equal
+  // to all the others, by assumption).
+  auto const *executablePath = jobs[0]->getExecutable();
+  auto const outputType = jobs[0]->getOutput().getPrimaryOutputType();
+  auto output = llvm::make_unique<CommandOutput>(outputType);
+  for (auto const *J : jobs) {
+    output->addOutputs(J->getOutput());
+  }
+
+  // Synthetic Inputs and InputActions are the set-unions of the inputs to
+  // the constituent jobs. This avoids mentioning the same input twice if
+  // it was a non-primary (or a PCH or whatever).
+  llvm::SmallSetVector<const Job *, 16> inputJobs;
+  llvm::SmallSetVector<const Action *, 16> inputActions;
+  for (auto const *J : jobs) {
+    for (auto const *I : J->getInputs()) {
+      inputJobs.insert(I);
+    }
+    auto const *CJA = dyn_cast<CompileJobAction>(&J->getSource());
+    if (!CJA)
+      return nullptr;
+    for (auto const *I : CJA->getInputs()) {
+      inputActions.insert(I);
+    }
+  }
+
+  // Synthetic CJA seems mostly unused but we construct and populate it
+  // in any case, for completeness and legibility.
+  auto *batchCJA = C.createAction<CompileJobAction>(outputType);
+  for (auto const *I : inputActions) {
+    batchCJA->addInput(I);
+  }
+
+  JobContext context{C, inputJobs.getArrayRef(), inputActions.getArrayRef(),
+                     *output, OI};
+  auto invocationInfo = constructInvocation(*batchCJA, context);
+  return llvm::make_unique<BatchJob>(*batchCJA,
+                                     inputJobs.takeVector(),
+                                     std::move(output),
+                                     executablePath,
+                                     std::move(invocationInfo.Arguments),
+                                     std::move(invocationInfo.ExtraEnvironment),
+                                     std::move(invocationInfo.FilelistInfos),
+                                     jobs);
 }
 
 bool

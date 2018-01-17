@@ -171,6 +171,13 @@ public:
                                     std::unique_ptr<CommandOutput> output,
                                     const OutputInfo &OI) const;
 
+  bool jobIsBatchable(const Job *A) const;
+
+  bool jobsAreBatchCombinable(const Job *A, const Job *B) const;
+
+  std::unique_ptr<Job> constructBatchJob(ArrayRef<const Job *> Jobs,
+                                         Compilation &C) const;
+
   /// Return the default language type to use for the given extension.
   /// If the extension is empty or is otherwise not recognized, return
   /// the invalid type \c TY_INVALID.

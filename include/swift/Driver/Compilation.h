@@ -90,6 +90,11 @@ private:
   /// The translated input arg list.
   std::unique_ptr<llvm::opt::DerivedArgList> TranslatedArgs;
 
+  /// The ToolChain, which the Compilation takes ownership of upon
+  /// construction, and which it may use to build subsequent batch
+  /// jobs itself.
+  std::unique_ptr<const ToolChain> TheToolChain;
+
   /// A list of input files and their associated types.
   InputFileList InputFilesWithTypes;
 
@@ -172,9 +177,11 @@ private:
       ArrayRefView<std::unique_ptr<T>, T *, Compilation::unwrap<T>>;
 
 public:
-  Compilation(DiagnosticEngine &Diags, OutputLevel Level,
+  Compilation(DiagnosticEngine &Diags,
+              OutputLevel Level,
               std::unique_ptr<llvm::opt::InputArgList> InputArgs,
               std::unique_ptr<llvm::opt::DerivedArgList> TranslatedArgs,
+              std::unique_ptr<const ToolChain> TC,
               InputFileList InputsWithTypes,
               StringRef ArgsHash, llvm::sys::TimePoint<> StartTime,
               unsigned NumberOfParallelCommands = 1,
@@ -184,6 +191,10 @@ public:
               bool ShowDriverTimeCompilation = false,
               std::unique_ptr<UnifiedStatsReporter> Stats = nullptr);
   ~Compilation();
+
+  ToolChain const &getToolChain() const {
+    return *TheToolChain;
+  }
 
   UnwrappedArrayView<const Action> getActions() const {
     return llvm::makeArrayRef(Actions);

@@ -686,9 +686,11 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
       llvm_unreachable("Unknown OutputLevel argument!");
   }
 
-  std::unique_ptr<Compilation> C(new Compilation(Diags, Level,
+  std::unique_ptr<Compilation> C(new Compilation(Diags,
+                                                 Level,
                                                  std::move(ArgList),
                                                  std::move(TranslatedArgList),
+                                                 std::move(TC),
                                                  std::move(Inputs),
                                                  ArgsHash, StartTime,
                                                  NumberOfParallelCommands,
@@ -699,7 +701,7 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
                                                  std::move(StatsReporter)));
   // Construct the graph of Actions.
   SmallVector<const Action *, 8> TopLevelActions;
-  buildActions(TopLevelActions, *TC, OI, OFM.get(),
+  buildActions(TopLevelActions, C->getToolChain(), OI, OFM.get(),
                rebuildEverything ? nullptr : &outOfDateMap, *C);
 
   if (Diags.hadAnyError())
@@ -710,7 +712,7 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
     return nullptr;
   }
 
-  buildJobs(TopLevelActions, OI, OFM.get(), *TC, *C);
+  buildJobs(TopLevelActions, OI, OFM.get(), C->getToolChain(), *C);
 
   // For getting bulk fixits, or for when users explicitly request to continue
   // building despite errors.

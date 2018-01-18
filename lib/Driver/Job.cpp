@@ -22,6 +22,19 @@
 using namespace swift;
 using namespace swift::driver;
 
+void CommandOutput::addOutputs(CommandOutput const &other) {
+  PrimaryOutputFilenames.append(other.PrimaryOutputFilenames.begin(),
+                                other.PrimaryOutputFilenames.end());
+  BaseInputs.append(other.BaseInputs.begin(),
+                    other.BaseInputs.end());
+  for (auto const &pair : other.AdditionalOutputsMap) {
+    auto &V = AdditionalOutputsMap[pair.getFirst()];
+    for (auto const &E : pair.getSecond()) {
+      V.push_back(E);
+    }
+  }
+}
+
 void CommandOutput::addAdditionalOutputForType(types::ID type,
                                                StringRef OutputFilename) {
   // FIXME: dmu called multiple times for same type for BatchMode

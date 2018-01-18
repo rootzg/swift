@@ -59,7 +59,10 @@ public:
     PrimaryOutputFilenames.push_back(FileName);
     BaseInputs.push_back(BaseInput);
   }
-  
+
+  // Add all the output information from 'other' to 'this'.
+  void addOutputs(CommandOutput const &other);
+
   // This returns a std::string instead of a StringRef so that users can rely
   // on the data buffer being null-terminated.
   const std::string &getPrimaryOutputFilename() const {

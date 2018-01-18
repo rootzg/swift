@@ -580,8 +580,8 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
     return nullptr;
 
   // Determine the OutputInfo for the driver.
-  OutputInfo OI;
-  buildOutputInfo(*TC, *TranslatedArgList, Inputs, OI);
+  std::unique_ptr<OutputInfo> OI = llvm::make_unique<OutputInfo>();
+  buildOutputInfo(*TC, *TranslatedArgList, Inputs, *OI);
 
   if (Diags.hadAnyError())
     return nullptr;
@@ -597,9 +597,9 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
     if (Inputs.size() == 1) {
       InputName = Inputs[0].second->getSpelling();
     }
-    StringRef OutputType = types::getTypeTempSuffix(OI.CompilerOutputType);
+    StringRef OutputType = types::getTypeTempSuffix(OI->CompilerOutputType);
     StatsReporter = llvm::make_unique<UnifiedStatsReporter>("swift-driver",
-                                                            OI.ModuleName,
+                                                            OI->ModuleName,
                                                             InputName,
                                                             DefaultTargetTriple,
                                                             OutputType,
@@ -607,12 +607,12 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
                                                             A->getValue());
   }
 
-  assert(OI.CompilerOutputType != types::ID::TY_INVALID &&
+  assert(OI->CompilerOutputType != types::ID::TY_INVALID &&
          "buildOutputInfo() must set a valid output type!");
   
-  validateEmbedBitcode(*TranslatedArgList, OI, Diags);
+  validateEmbedBitcode(*TranslatedArgList, *OI, Diags);
 
-  if (OI.CompilerMode == OutputInfo::Mode::REPL)
+  if (OI->CompilerMode == OutputInfo::Mode::REPL)
     // REPL mode expects no input files, so suppress the error.
     SuppressNoInputFilesError = true;
 
@@ -691,6 +691,7 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
                                                  std::move(ArgList),
                                                  std::move(TranslatedArgList),
                                                  std::move(TC),
+                                                 std::move(OI),
                                                  std::move(Inputs),
                                                  ArgsHash, StartTime,
                                                  NumberOfParallelCommands,
@@ -701,8 +702,8 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
                                                  std::move(StatsReporter)));
   // Construct the graph of Actions.
   SmallVector<const Action *, 8> TopLevelActions;
-  buildActions(TopLevelActions, C->getToolChain(), OI, OFM.get(),
-               rebuildEverything ? nullptr : &outOfDateMap, *C);
+  buildActions(TopLevelActions, C->getToolChain(), C->getOutputInfo(),
+               OFM.get(), rebuildEverything ? nullptr : &outOfDateMap, *C);
 
   if (Diags.hadAnyError())
     return nullptr;
@@ -712,7 +713,8 @@ std::unique_ptr<Compilation> Driver::buildCompilation(
     return nullptr;
   }
 
-  buildJobs(TopLevelActions, OI, OFM.get(), C->getToolChain(), *C);
+  buildJobs(TopLevelActions, C->getOutputInfo(), OFM.get(),
+            C->getToolChain(), *C);
 
   // For getting bulk fixits, or for when users explicitly request to continue
   // building despite errors.

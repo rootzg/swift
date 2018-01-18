@@ -42,6 +42,7 @@ namespace swift {
 namespace driver {
   class Driver;
   class ToolChain;
+  class OutputInfo;
   class PerformJobsState;
 
 /// An enum providing different levels of output which should be produced
@@ -94,6 +95,11 @@ private:
   /// construction, and which it may use to build subsequent batch
   /// jobs itself.
   std::unique_ptr<const ToolChain> TheToolChain;
+
+  /// The OutputInfo, which the Compilation takes ownership of upon
+  /// construction, and which it may use to build subsequent batch
+  /// jobs itself.
+  std::unique_ptr<OutputInfo> TheOutputInfo;
 
   /// A list of input files and their associated types.
   InputFileList InputFilesWithTypes;
@@ -182,6 +188,7 @@ public:
               std::unique_ptr<llvm::opt::InputArgList> InputArgs,
               std::unique_ptr<llvm::opt::DerivedArgList> TranslatedArgs,
               std::unique_ptr<const ToolChain> TC,
+              std::unique_ptr<OutputInfo> OI,
               InputFileList InputsWithTypes,
               StringRef ArgsHash, llvm::sys::TimePoint<> StartTime,
               unsigned NumberOfParallelCommands = 1,
@@ -194,6 +201,10 @@ public:
 
   ToolChain const &getToolChain() const {
     return *TheToolChain;
+  }
+
+  OutputInfo const &getOutputInfo() const {
+    return *TheOutputInfo;
   }
 
   UnwrappedArrayView<const Action> getActions() const {

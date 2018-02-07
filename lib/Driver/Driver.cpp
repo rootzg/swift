@@ -518,6 +518,8 @@ Driver::buildCompilation(const ToolChain &TC,
   bool DriverPrintActions = ArgList->hasArg(options::OPT_driver_print_actions);
   bool DriverPrintOutputFileMap =
     ArgList->hasArg(options::OPT_driver_print_output_file_map);
+  bool DriverPrintDerivedOutputFileMap =
+    ArgList->hasArg(options::OPT_driver_print_derived_output_file_map);
   DriverPrintBindings = ArgList->hasArg(options::OPT_driver_print_bindings);
   bool DriverPrintJobs = ArgList->hasArg(options::OPT_driver_print_jobs);
   bool DriverSkipExecution =
@@ -701,6 +703,11 @@ Driver::buildCompilation(const ToolChain &TC,
   }
 
   buildJobs(TopLevelActions, OI, OFM.get(), TC, *C);
+
+  if (DriverPrintDerivedOutputFileMap) {
+    C->getDerivedOutputFileMap().dump(llvm::errs(), true);
+    return nullptr;
+  }
 
   // For getting bulk fixits, or for when users explicitly request to continue
   // building despite errors.

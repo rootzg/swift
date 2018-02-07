@@ -52,8 +52,18 @@ const TypeToPathMap *OutputFileMap::getOutputMapForInput(StringRef Input) const{
     return &iter->second;
 }
 
+TypeToPathMap &
+OutputFileMap::getOrCreateOutputMapForInput(StringRef Input) {
+  return InputToOutputsMap[Input];
+}
+
 const TypeToPathMap *OutputFileMap::getOutputMapForSingleOutput() const {
   return getOutputMapForInput(StringRef());
+}
+
+TypeToPathMap &
+OutputFileMap::getOrCreateOutputMapForSingleOutput() {
+  return InputToOutputsMap[StringRef()];
 }
 
 void OutputFileMap::dump(llvm::raw_ostream &os, bool Sort) const {

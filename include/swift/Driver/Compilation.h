@@ -77,6 +77,11 @@ private:
   /// The OutputLevel at which this Compilation should generate output.
   OutputLevel Level;
 
+  /// The OutputFileMap describing the Compilation's outputs, populated both by
+  /// the user-provided output file map (if it exists) and inference rules that
+  /// derive otherwise-unspecified output filenames from context.
+  OutputFileMap DerivedOutputFileMap;
+
   /// The Actions which were used to build the Jobs.
   ///
   /// This is mostly only here for lifetime management.
@@ -217,6 +222,11 @@ public:
 
   const llvm::opt::DerivedArgList &getArgs() const { return *TranslatedArgs; }
   ArrayRef<InputPair> getInputFiles() const { return InputFilesWithTypes; }
+
+  OutputFileMap &getDerivedOutputFileMap() { return DerivedOutputFileMap; }
+  const OutputFileMap &getDerivedOutputFileMap() const {
+    return DerivedOutputFileMap;
+  }
 
   unsigned getNumberOfParallelCommands() const {
     return NumberOfParallelCommands;

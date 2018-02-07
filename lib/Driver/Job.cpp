@@ -17,31 +17,59 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Program.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+
+#define DEBUG_TYPE "swift-driver-job"
 
 using namespace swift;
 using namespace swift::driver;
 
+StringRef
+CommandOutput::getOutputForInputAndType(StringRef Input, types::ID Type) const {
+  auto const *M = DerivedOutputMap.getOutputMapForInput(Input);
+  if (!M)
+    return StringRef();
+  auto const Out = M->find(Type);
+  if (Out == M->end())
+    return StringRef();
+  return StringRef(Out->second);
+}
+
+
+void
+CommandOutput::checkConflictAndAdd(StringRef OutputFile,
+                                   StringRef InputFile,
+                                   types::ID type) {
+  auto &M = DerivedOutputMap.getOrCreateOutputMapForInput(InputFile);
+  auto const Out = M.find(type);
+  if (Out == M.end()) {
+    M.insert(std::make_pair(type, OutputFile));
+  } else {
+    DEBUG({
+        if (Out->second != OutputFile) {
+          llvm::errs() << "Error: Adding OFM"
+                       << "['" << InputFile << "']"
+                       << "[" << types::getTypeName(type) << "] = "
+                       << "'" << OutputFile << "' "
+                       << "(existing entry: '" << Out->second << "')\n";
+          dump();
+        }
+      });
+    assert(Out->second == OutputFile);
+  }
+}
+
 void CommandOutput::setAdditionalOutputForType(types::ID type,
                                                StringRef OutputFilename) {
-  AdditionalOutputsMap[type] = OutputFilename;
+  assert(InputFiles.size() == 1);
+  checkConflictAndAdd(OutputFilename, InputFiles[0], type);
 }
 
-const std::string &
+StringRef
 CommandOutput::getAdditionalOutputForType(types::ID type) const {
-  auto iter = AdditionalOutputsMap.find(type);
-  if (iter != AdditionalOutputsMap.end())
-    return iter->second;
-
-  static const std::string empty;
-  return empty;
-}
-
-const std::string &
-CommandOutput::getAnyOutputForType(types::ID type) const {
-  if (PrimaryOutputType == type)
-    return PrimaryOutputFilenames[0];
-  return getAdditionalOutputForType(type);
+  assert(InputFiles.size() == 1);
+  return getOutputForInputAndType(InputFiles[0], type);
 }
 
 static void escapeAndPrintString(llvm::raw_ostream &os, StringRef Str) {
@@ -77,6 +105,25 @@ static void escapeAndPrintString(llvm::raw_ostream &os, StringRef Str) {
     }
   }
   os << '"';
+}
+
+void
+CommandOutput::dump() const {
+  llvm::errs()
+    << "CommandOutput {\n"
+    << "    PrimaryOutputType = "
+    << types::getTypeName(PrimaryOutputType)
+    << ";\n"
+    << "    InputFiles = [";
+  interleave(InputFiles,
+             [&](StringRef S) { escapeAndPrintString(llvm::errs(), S); },
+             [&] { llvm::errs() << ' '; });
+  llvm::errs()
+    << "];\n"
+    << "    DerivedOutputFileMap = {\n";
+  DerivedOutputMap.dump(llvm::errs(), true);
+  llvm::errs()
+    << "\n    };\n}\n";
 }
 
 void Job::printArguments(raw_ostream &os,

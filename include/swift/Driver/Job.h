@@ -15,6 +15,7 @@
 
 #include "swift/Basic/LLVM.h"
 #include "swift/Driver/Action.h"
+#include "swift/Driver/OutputFileMap.h"
 #include "swift/Driver/Types.h"
 #include "swift/Driver/Util.h"
 #include "llvm/Option/Option.h"
@@ -35,47 +36,83 @@ class Job;
 class JobAction;
 
 class CommandOutput {
+
+  /// A CommandOutput designates one type of output as primary, though there
+  /// may be multiple outputs of that type.
   types::ID PrimaryOutputType;
-  
-  /// The primary output files of the command.
-  /// Usually a command has only a single output file. Only the compiler in
-  /// multi-threaded compilation produces multiple output files.
-  SmallVector<std::string, 1> PrimaryOutputFilenames;
 
-  /// For each primary output file there is a base input. This is the input file
-  /// from which the output file is derived.
-  SmallVector<StringRef, 1> BaseInputs;
+  /// The set of input filenames for this \c CommandOutput; combined with \c
+  /// DerivedOutputMap, specifies a set of output filenames (of which one -- the
+  /// one of type \c PrimaryOutputType) is the primary output filename.
+  SmallVector<StringRef, 1> InputFiles;
 
-  llvm::SmallDenseMap<types::ID, std::string, 4> AdditionalOutputsMap;
+  /// All CommandOutputs in a Compilation share the same \c
+  /// DerivedOutputMap. This is computed both from any user-provided input file
+  /// map, and any inference steps.
+  OutputFileMap &DerivedOutputMap;
+
+  // If there is an entry in the DerivedOutputMap for a given (Input, Type)
+  // pair, return a nonempty StringRef, otherwise return an empty StringRef.
+  StringRef
+  getOutputForInputAndType(StringRef Input, types::ID Type) const;
+
+  /// Add an entry to the \c DerivedOutputMap if it doesn't exist. If an entry
+  /// already exists, assert that it has the same value as the call was
+  /// attempting to add.
+  void checkConflictAndAdd(StringRef OutputFile,
+                           StringRef InputFile,
+                           types::ID type);
 
 public:
-  CommandOutput(types::ID PrimaryOutputType)
-      : PrimaryOutputType(PrimaryOutputType) { }
+  CommandOutput(types::ID PrimaryOutputType, OutputFileMap &Derived)
+    : PrimaryOutputType(PrimaryOutputType),
+      DerivedOutputMap(Derived) { }
 
+  /// Return the primary output type for this CommandOutput.
   types::ID getPrimaryOutputType() const { return PrimaryOutputType; }
 
-  void addPrimaryOutput(StringRef FileName, StringRef BaseInput) {
-    PrimaryOutputFilenames.push_back(FileName);
-    BaseInputs.push_back(BaseInput);
-  }
-  
-  // This returns a std::string instead of a StringRef so that users can rely
-  // on the data buffer being null-terminated.
-  const std::string &getPrimaryOutputFilename() const {
-    assert(PrimaryOutputFilenames.size() == 1);
-    return PrimaryOutputFilenames[0];
+  /// Add a primary input file and associate a given primary output
+  /// file with it (of type \c getPrimaryOutputType())
+  void addPrimaryOutput(StringRef OutputFile, StringRef InputFile) {
+    InputFiles.push_back(InputFile);
+    checkConflictAndAdd(OutputFile, InputFile, PrimaryOutputType);
   }
 
-  ArrayRef<std::string> getPrimaryOutputFilenames() const {
-    return PrimaryOutputFilenames;
+  /// Assuming (and asserting) that there is only one primary input file,
+  /// return the primary output file associated with it. Note that the
+  /// returned StringRef may be invalidated by subsequent mutations to
+  /// the \c CommandOutput.
+  StringRef getPrimaryOutputFilename() const {
+    assert(InputFiles.size() == 1);
+    return getOutputForInputAndType(InputFiles[0], PrimaryOutputType);
   }
-  
+
+  /// Return a all of the outputs of type \c getPrimaryOutputType() associated
+  /// with a primary input. Note that the returned \c StringRef vector may be
+  /// invalidated by subsequent mutations to the \c CommandOutput.
+  SmallVector<StringRef, 16> getPrimaryOutputFilenames() const {
+    SmallVector<StringRef, 16> V;
+    for (auto I : InputFiles) {
+      auto Out = getOutputForInputAndType(I, PrimaryOutputType);
+      if (!Out.empty())
+        V.push_back(Out);
+    }
+    return V;
+  }
+
+  /// Assuming (and asserting) that there is only one primary input, associate
+  /// an additional output named \p OutputFilename of type \p type with that
+  /// primary input.
   void setAdditionalOutputForType(types::ID type, StringRef OutputFilename);
-  const std::string &getAdditionalOutputForType(types::ID type) const;
 
-  const std::string &getAnyOutputForType(types::ID type) const;
+  /// Assuming (and asserting) that there is only one primary input, return the
+  /// additional output of type \p type associated with that primary input.
+  StringRef getAdditionalOutputForType(types::ID type) const;
 
-  StringRef getBaseInput(int Index) const { return BaseInputs[Index]; }
+  /// Return the primary input numbered by \p Index.
+  StringRef getBaseInput(int Index) const { return InputFiles[Index]; }
+
+  void dump() const LLVM_ATTRIBUTE_USED;
 };
 
 class Job {

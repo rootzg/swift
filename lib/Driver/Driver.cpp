@@ -1865,10 +1865,25 @@ static StringRef getOutputFilename(Compilation &C,
   return Buffer.str();
 }
 
+static bool checkExistingOutput(CommandOutput &output,
+                                types::ID outputType,
+                                StringRef outputPath = StringRef()) {
+  auto existing = output.getAdditionalOutputForType(outputType);
+  if (!existing.empty()) {
+    assert(outputPath.empty() || outputPath == existing);
+    return true;
+  }
+  return false;
+}
+
 static void addAuxiliaryOutput(Compilation &C, CommandOutput &output,
                                types::ID outputType, const OutputInfo &OI,
                                const TypeToPathMap *outputMap,
                                StringRef outputPath = StringRef()) {
+
+  if (checkExistingOutput(output, outputType, outputPath))
+    return;
+
   StringRef outputMapPath;
   if (outputMap) {
     auto iter = outputMap->find(outputType);
@@ -2049,7 +2064,8 @@ Job *Driver::buildJobsForAction(Compilation &C, const JobAction *JA,
     }
   }
 
-  std::unique_ptr<CommandOutput> Output(new CommandOutput(JA->getType()));
+  std::unique_ptr<CommandOutput> Output(
+      new CommandOutput(JA->getType(), C.getDerivedOutputFileMap()));
   llvm::SmallString<128> Buf;
   computeMainOutput(C, JA, OI, OFM, TC, AtTopLevel, InputActions, InputJobs,
                     OutputMap, BaseInput, Buf, Output.get());
@@ -2213,6 +2229,10 @@ void Driver::chooseSwiftModuleOutputPath(Compilation &C, const OutputInfo &OI,
                                          const OutputFileMap *OFM,
                                          const TypeToPathMap *OutputMap,
                                          CommandOutput *Output) const {
+
+  if (checkExistingOutput(*Output, types::TY_SwiftModuleFile))
+    return;
+
   StringRef OFMModuleOutputPath;
   if (OutputMap) {
     auto iter = OutputMap->find(types::TY_SwiftModuleFile);
@@ -2264,6 +2284,10 @@ void Driver::chooseSwiftModuleOutputPath(Compilation &C, const OutputInfo &OI,
 void Driver::chooseSwiftModuleDocOutputPath(Compilation &C,
                                             const TypeToPathMap *OutputMap,
                                             CommandOutput *Output) const {
+
+  if (checkExistingOutput(*Output, types::TY_SwiftModuleDocFile))
+    return;
+
   StringRef OFMModuleDocOutputPath;
   if (OutputMap) {
     auto iter = OutputMap->find(types::TY_SwiftModuleDocFile);
@@ -2277,7 +2301,7 @@ void Driver::chooseSwiftModuleDocOutputPath(Compilation &C,
   } else {
     // Otherwise, put it next to the swiftmodule file.
     llvm::SmallString<128> Path(
-        Output->getAnyOutputForType(types::TY_SwiftModuleFile));
+        Output->getAdditionalOutputForType(types::TY_SwiftModuleFile));
     bool isTempFile = C.isTemporaryFile(Path);
     llvm::sys::path::replace_extension(Path, SERIALIZED_MODULE_DOC_EXTENSION);
     Output->setAdditionalOutputForType(types::TY_SwiftModuleDocFile, Path);
@@ -2289,6 +2313,10 @@ void Driver::chooseSwiftModuleDocOutputPath(Compilation &C,
 void Driver::chooseRemappingOutputPath(Compilation &C,
                                        const TypeToPathMap *OutputMap,
                                        CommandOutput *Output) const {
+
+  if (checkExistingOutput(*Output, types::TY_Remapping))
+    return;
+
   StringRef OFMFixitsOutputPath;
   if (OutputMap) {
     auto iter = OutputMap->find(types::TY_Remapping);
@@ -2326,7 +2354,7 @@ void Driver::chooseSerializedDiagnosticsPath(Compilation &C,
     // Remove any existing diagnostics files so that clients can detect their
     // presence to determine if a command was run.
     StringRef OutputPath =
-        Output->getAnyOutputForType(types::TY_SerializedDiagnostics);
+        Output->getAdditionalOutputForType(types::TY_SerializedDiagnostics);
     if (llvm::sys::fs::is_regular_file(OutputPath))
       llvm::sys::fs::remove(OutputPath);
   }
@@ -2414,6 +2442,10 @@ void Driver::chooseObjectiveCHeaderOutputPath(Compilation &C,
                                               const OutputInfo &OI,
                                               const TypeToPathMap *OutputMap,
                                               CommandOutput *Output) const {
+
+  if (checkExistingOutput(*Output, types::TY_ObjCHeader))
+    return;
+
   StringRef ObjCHeaderPath;
   if (OutputMap) {
     auto iter = OutputMap->find(types::TY_ObjCHeader);

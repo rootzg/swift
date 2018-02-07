@@ -813,7 +813,7 @@ static bool writeFilelistIfNecessary(const Job *job, DiagnosticEngine &diags) {
           for (auto &output : outputInfo.getPrimaryOutputFilenames())
             out << output << "\n";
         } else {
-          auto &output = outputInfo.getAnyOutputForType(filelistInfo.type);
+          auto output = outputInfo.getAdditionalOutputForType(filelistInfo.type);
           if (!output.empty())
             out << output << "\n";
         }

@@ -2047,8 +2047,10 @@ Job *Driver::buildJobsForAction(Compilation &C, const JobAction *JA,
     const InputAction *IA = cast<InputAction>(InputActions[0]);
     BaseInput = IA->getInputArg().getValue();
   } else if (!InputJobs.empty()) {
-    // Use the first Job's BaseInput as our BaseInput.
-    BaseInput = InputJobs.front()->getOutput().getBaseInput(JA->getInputIndex());
+    // Use the first Job's Primary Output as our BaseInput.
+    BaseInput = InputJobs.front()
+                    ->getOutput()
+                    .getPrimaryOutputFilenames()[JA->getInputIndex()];
   }
 
   const TypeToPathMap *OutputMap = nullptr;
@@ -2212,9 +2214,10 @@ void Driver::computeMainOutput(Compilation &C, const JobAction *JA,
       const InputAction *IA = cast<InputAction>(A);
       OutputFunc(IA->getInputArg().getValue());
     }
-    // Add an output file for each input job.
+    // Add an output file for each primary output of each input job.
     for (const Job *job : InputJobs) {
-      OutputFunc(job->getOutput().getBaseInput(0));
+      for (auto Out : job->getOutput().getPrimaryOutputFilenames())
+        OutputFunc(Out);
     }
   } else {
     // The common case: there is a single output file.

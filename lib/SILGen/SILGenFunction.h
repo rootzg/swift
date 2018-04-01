@@ -22,6 +22,7 @@
 #include "SILGenBuilder.h"
 #include "swift/AST/AnyFunctionRef.h"
 #include "swift/Basic/ProfileCounter.h"
+#include "swift/Basic/Statistic.h"
 #include "swift/SIL/SILBuilder.h"
 #include "llvm/ADT/PointerIntPair.h"
 
@@ -379,6 +380,9 @@ public:
 
   /// Get the PGO node's parent.
   Optional<ASTNode> getPGOParent(ASTNode Node) const;
+
+  /// Tracer object for counting SIL (and other events) caused by this instance.
+  FrontendStatsTracer StatsTracer;
 
   SILGenFunction(SILGenModule &SGM, SILFunction &F);
   ~SILGenFunction();

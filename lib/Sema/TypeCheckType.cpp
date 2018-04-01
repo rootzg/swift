@@ -1678,6 +1678,7 @@ Type TypeChecker::resolveType(TypeRepr *TyR, DeclContext *DC,
                               TypeResolutionOptions options,
                               GenericTypeResolver *resolver,
                               UnsatisfiedDependency *unsatisfiedDependency) {
+  FrontendStatsTracer StatsTracer(Context.Stats, "resolve-type", TyR);
   PrettyStackTraceTypeRepr stackTrace(Context, "resolving", TyR);
 
   // Make sure we always have a resolver to use.

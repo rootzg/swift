@@ -21,6 +21,7 @@
 #include "swift/AST/ParameterList.h"
 #include "swift/AST/PrettyStackTrace.h"
 #include "swift/AST/SubstitutionMap.h"
+#include "swift/Basic/Statistic.h"
 #include "swift/Sema/IDETypeChecking.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringExtras.h"
@@ -3586,6 +3587,8 @@ public:
 bool swift::typeCheckUnresolvedExpr(DeclContext &DC,
                                     Expr *E, Expr *Parent,
                                     SmallVectorImpl<Type> &PossibleTypes) {
+  FrontendStatsTracer StatsTracer(DC.getASTContext().Stats,
+                                  "typecheck-unresolved-member", Parent);
   PrettyStackTraceExpr stackTrace(DC.getASTContext(),
                                   "type-checking unresolved member", Parent);
 

@@ -340,6 +340,7 @@ UnifiedStatsReporter::UnifiedStatsReporter(StringRef ProgramName,
     TraceFilename(Directory),
     ProfileDirname(Directory),
     StartedTime(llvm::TimeRecord::getCurrentTime()),
+    MainThreadID(std::this_thread::get_id()),
     Timer(make_unique<NamedRegionTimer>(AuxName,
                                         "Building Target",
                                         ProgramName, "Running Program")),
@@ -380,6 +381,7 @@ UnifiedStatsReporter::getFrontendCounters()
 
 void
 UnifiedStatsReporter::noteCurrentProcessExitStatus(int status) {
+  assert(MainThreadID == std::this_thread::get_id());
   assert(!currentProcessExitStatusSet);
   currentProcessExitStatusSet = true;
   currentProcessExitStatus = status;
@@ -501,6 +503,7 @@ UnifiedStatsReporter::saveAnyFrontendStatsEvents(
     FrontendStatsTracer const& T,
     bool IsEntry)
 {
+  assert(MainThreadID == std::this_thread::get_id());
   // First make a note in the recursion-safe timers; these
   // are active anytime UnifiedStatsReporter is active.
   if (IsEntry) {
@@ -580,6 +583,7 @@ UnifiedStatsReporter::TraceFormatter::~TraceFormatter() {}
 
 UnifiedStatsReporter::~UnifiedStatsReporter()
 {
+  assert(MainThreadID == std::this_thread::get_id());
   // If nobody's marked this process as successful yet,
   // mark it as failing.
   if (currentProcessExitStatus != EXIT_SUCCESS) {

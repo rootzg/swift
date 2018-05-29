@@ -1317,6 +1317,16 @@ static bool performCompileStepsPostSILGen(
 
   runSILLoweringPasses(*SM);
 
+  // TODO: at this point we need to flush any the _tracing and profiling_
+  // in the UnifiedStatsReporter, because the those subsystems of the USR
+  // retain _pointers into_ the SILModule, and the SILModule's lifecycle is
+  // not presently such that it will outlive the USR (indeed, as it's
+  // destroyed on a separate thread, this fact isn't even _deterministic_
+  // after this point). If future plans require the USR tracing or
+  // profiling entities after this point, more rearranging will be required.
+  if (Stats)
+    Stats->flushTracesAndProfiles();
+
   // TODO: remove once the frontend understands what action it should perform
   IRGenOpts.OutputKind = getOutputKind(Action);
   if (Action == FrontendOptions::ActionType::Immediate)

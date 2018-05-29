@@ -343,11 +343,11 @@ SILFunction *SILModule::getOrCreateFunction(SILLocation loc,
                                             ForDefinition_t forDefinition,
                                             ProfileCounter entryCount) {
 
-  auto name = constant.mangle();
+  auto nameTmp = constant.mangle();
   auto constantType = Types.getConstantFunctionType(constant);
   SILLinkage linkage = constant.getLinkage(forDefinition);
 
-  if (auto fn = lookUpFunction(name)) {
+  if (auto fn = lookUpFunction(nameTmp)) {
     assert(fn->getLoweredFunctionType() == constantType);
     assert(fn->getLinkage() == linkage ||
            (forDefinition == ForDefinition_t::NotForDefinition &&
@@ -379,6 +379,7 @@ SILFunction *SILModule::getOrCreateFunction(SILLocation loc,
   else if (constant.isAlwaysInline())
     inlineStrategy = AlwaysInline;
 
+  StringRef name = allocateCopy(nameTmp);
   auto *F =
       SILFunction::create(*this, linkage, name, constantType, nullptr, None,
                           IsNotBare, IsTrans, IsSer, entryCount, IsNotThunk,

@@ -245,10 +245,10 @@ static std::string mangleGetter(VarDecl *varDecl) {
 static SILFunction *getGlobalGetterFunction(SILModule &M,
                                             SILLocation loc,
                                             VarDecl *varDecl) {
-  auto getterName = mangleGetter(varDecl);
+  auto getterNameTmp = mangleGetter(varDecl);
 
   // Check if a getter was generated already.
-  if (auto *F = M.lookUpFunction(getterName))
+  if (auto *F = M.lookUpFunction(getterNameTmp))
     return F;
 
   auto Linkage = (varDecl->getEffectiveAccess() >= AccessLevel::Public
@@ -272,6 +272,7 @@ static SILFunction *getGlobalGetterFunction(SILModule &M,
                          /*params*/ {}, /*yields*/ {}, Results, None,
                          M.getASTContext());
 
+  auto getterName = M.allocateCopy(getterNameTmp);
   return M.getOrCreateFunction(
       loc, getterName, Linkage, LoweredType,
       IsBare, IsNotTransparent, Serialized);

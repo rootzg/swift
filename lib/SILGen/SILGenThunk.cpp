@@ -47,8 +47,8 @@ SILFunction *SILGenModule::getDynamicThunk(SILDeclRef constant,
   assert(constant.kind != SILDeclRef::Kind::Allocator &&
          "allocating entry point for constructor is never dynamic");
   // Mangle the constant with a TD suffix.
-  auto name = constant.mangle(SILDeclRef::ManglingKind::DynamicThunk);
-
+  auto nameTmp = constant.mangle(SILDeclRef::ManglingKind::DynamicThunk);
+  auto name = M.allocateCopy(nameTmp);
   auto F = M.getOrCreateFunction(constant.getDecl(), name, SILLinkage::Shared,
                                  constantTy, IsBare, IsTransparent,
                                  IsSerializable, ProfileCounter(), IsThunk);
